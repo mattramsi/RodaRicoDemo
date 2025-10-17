@@ -19,8 +19,50 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [devices, setDevices] = useState<Map<string, DiscoveredDevice>>(new Map());
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
-  const [writableCharacteristic, setWritableCharacteristic] = useState<Characteristic | null>(null);
+  const [writableCharacteristic, setWritableCharacteristic] = useState<Characteristic | undefined>(undefined);
   const [statusText, setStatusText] = useState<string>('');
+  const [negotiatedMtu, setNegotiatedMtu] = useState<number | null>(null);
+
+  // Alvos opcionais: defina se seu periférico exigir UUIDs específicos
+  // ex.: const TARGET_SERVICE_UUID = 'd0611e78-bbb4-4591-a5f8-487910ae4366';
+  // ex.: const TARGET_WRITE_CHAR_UUID = '8667556c-9a37-4c91-84ed-54ee27d90049';
+  const TARGET_SERVICE_UUID: string | undefined = undefined;
+  const TARGET_WRITE_CHAR_UUID: string | undefined = undefined;
+  const PREFERRED_MTU = 185; // Android apenas
+
+  const sleep = useCallback((ms: number) => new Promise((r) => setTimeout(r, ms)), []);
+  const equalsUuid = useCallback((a?: string | null, b?: string | null) =>
+    !!a && !!b && a.toLowerCase() === b.toLowerCase(), []);
+
+  const pickWritableCharacteristic = useCallback(async (deviceId: string): Promise<Characteristic | undefined> => {
+    if (!managerRef.current) return undefined;
+    try {
+      // Tentar alvos específicos primeiro
+      if (TARGET_SERVICE_UUID) {
+        const chars = await managerRef.current.characteristicsForDevice(deviceId, TARGET_SERVICE_UUID);
+        let candidate = chars.find((ch) => equalsUuid(ch.uuid, TARGET_WRITE_CHAR_UUID) && (ch.isWritableWithoutResponse || ch.isWritableWithResponse));
+        if (candidate) return candidate;
+        candidate = chars.find((ch) => ch.isWritableWithoutResponse || ch.isWritableWithResponse);
+        if (candidate) return candidate;
+      }
+
+      // Varrer services, priorizando writeWithoutResponse
+      const services = await managerRef.current.servicesForDevice(deviceId);
+      let best: Characteristic | undefined = undefined;
+      for (const svc of services) {
+        if (TARGET_SERVICE_UUID && !equalsUuid(svc.uuid, TARGET_SERVICE_UUID)) continue;
+        const chars = await managerRef.current.characteristicsForDevice(deviceId, svc.uuid);
+        const noResp = chars.find((ch) => ch.isWritableWithoutResponse);
+        if (noResp) return noResp;
+        const withResp = chars.find((ch) => ch.isWritableWithResponse);
+        if (withResp && !best) best = withResp;
+      }
+      return best;
+    } catch (err) {
+      console.error('Falha ao escolher characteristic gravável', err);
+      return undefined;
+    }
+  }, [equalsUuid, TARGET_SERVICE_UUID, TARGET_WRITE_CHAR_UUID]);
 
   useEffect(() => {
     managerRef.current = new BleManager();
@@ -35,11 +77,6 @@ export default function App() {
       }
     };
   }, []);
-
-  // Solicitar permissões assim que o app iniciar
-  useEffect(() => {
-    ensurePermissions();
-  }, [ensurePermissions]);
 
   const ensurePermissions = useCallback(async () => {
     try {
@@ -89,6 +126,11 @@ export default function App() {
       return false;
     }
   }, []);
+
+  // Solicitar permissões assim que o app iniciar
+  useEffect(() => {
+    ensurePermissions();
+  }, [ensurePermissions]);
 
   const startScan = useCallback(async () => {
     const ok = await ensurePermissions();
@@ -147,21 +189,24 @@ export default function App() {
       setStatusText(`Conectando a ${device.name || device.id}...`);
       const connected = await managerRef.current.connectToDevice(device.id, { autoConnect: false });
       const discovered = await connected.discoverAllServicesAndCharacteristics();
+      // Pequeno delay: alguns firmwares precisam de tempo após discover
+      await sleep(200);
+
+      // Negociar MTU no Android (amplia tamanho de pacote)
+      if (Platform.OS === 'android') {
+        try {
+          const afterMtu = await discovered.requestMTU(PREFERRED_MTU);
+          setNegotiatedMtu(afterMtu.mtu ?? null);
+          console.log('MTU negociado:', afterMtu.mtu);
+        } catch (e) {
+          console.warn('Falha ao negociar MTU (Android)', e);
+        }
+      }
+
       setConnectedDevice(discovered);
       setStatusText('Descobrindo services/characteristics...');
 
-      const services = await managerRef.current.servicesForDevice(discovered.id);
-      let writable: Characteristic | null = null;
-      for (const svc of services) {
-        const chars = await managerRef.current.characteristicsForDevice(discovered.id, svc.uuid);
-        for (const ch of chars) {
-          if (ch.isWritableWithResponse || ch.isWritableWithoutResponse) {
-            writable = ch;
-            break;
-          }
-        }
-        if (writable) break;
-      }
+      const writable = await pickWritableCharacteristic(discovered.id);
 
       if (!writable) {
         console.error('Nenhuma characteristic gravável encontrada');
@@ -179,7 +224,7 @@ export default function App() {
       console.error('Erro ao conectar:', error);
       Alert.alert('Erro', 'Falha ao conectar ao dispositivo BLE');
       setConnectedDevice(null);
-      setWritableCharacteristic(null);
+      setWritableCharacteristic(undefined);
       setStatusText('Falha na conexão');
     }
   }, [stopScan]);
@@ -192,7 +237,7 @@ export default function App() {
       console.error('Erro ao desconectar', e);
     }
     setConnectedDevice(null);
-    setWritableCharacteristic(null);
+    setWritableCharacteristic(undefined);
     setStatusText('Desconectado');
   }, [connectedDevice]);
 
@@ -202,25 +247,45 @@ export default function App() {
       return;
     }
     try {
-      const payloadUtf8 = commandLabel; // ajuste aqui o protocolo do seu dispositivo
-      const payloadBase64 = base64Encode(payloadUtf8);
-      const useNoResp = writableCharacteristic.isWritableWithoutResponse;
-      setStatusText(`Enviando: ${commandLabel}`);
-      if (useNoResp) {
-        await managerRef.current.writeCharacteristicWithoutResponseForDevice(
+      const payloadUtf8 = commandLabel; // ajuste conforme protocolo do periférico
+      const writeChunk = async (chunk: string, preferNoResp: boolean) => {
+        const b64 = base64Encode(chunk);
+        if (preferNoResp && writableCharacteristic.isWritableWithoutResponse) {
+          await managerRef.current!.writeCharacteristicWithoutResponseForDevice(
+            connectedDevice.id,
+            writableCharacteristic.serviceUUID!,
+            writableCharacteristic.uuid,
+            b64
+          );
+          return;
+        }
+        await managerRef.current!.writeCharacteristicWithResponseForDevice(
           connectedDevice.id,
           writableCharacteristic.serviceUUID!,
           writableCharacteristic.uuid,
-          payloadBase64
+          b64
         );
-      } else {
-        await managerRef.current.writeCharacteristicWithResponseForDevice(
-          connectedDevice.id,
-          writableCharacteristic.serviceUUID!,
-          writableCharacteristic.uuid,
-          payloadBase64
-        );
+      };
+
+      // Tamanho seguro de chunk (20 bytes). Pode usar (negotiatedMtu - 3) quando disponível
+      const chunkSize = 20;
+      const chunks: string[] = [];
+      for (let i = 0; i < payloadUtf8.length; i += chunkSize) {
+        chunks.push(payloadUtf8.slice(i, i + chunkSize));
       }
+
+      setStatusText(`Enviando: ${commandLabel}`);
+      for (const chunk of chunks) {
+        try {
+          await writeChunk(chunk, true);
+        } catch (errFirst) {
+          console.warn('Falha write sem resposta, tentando com resposta', errFirst);
+          await sleep(50);
+          await writeChunk(chunk, false);
+        }
+        await sleep(20);
+      }
+
       setStatusText(`Comando enviado: ${commandLabel}`);
       console.log(`Comando '${commandLabel}' enviado com sucesso`);
     } catch (error) {
@@ -228,7 +293,7 @@ export default function App() {
       Alert.alert('Erro', `Falha ao enviar comando: ${commandLabel}`);
       setStatusText(`Falha ao enviar: ${commandLabel}`);
     }
-  }, [connectedDevice, writableCharacteristic]);
+  }, [connectedDevice, negotiatedMtu, pickWritableCharacteristic, sleep, writableCharacteristic]);
 
   const deviceList = useMemo(() => Array.from(devices.values()).sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999)), [devices]);
 
