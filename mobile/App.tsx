@@ -22,6 +22,10 @@ export default function App() {
   const [writableCharacteristic, setWritableCharacteristic] = useState<Characteristic | undefined>(undefined);
   const [statusText, setStatusText] = useState<string>('');
   const [negotiatedMtu, setNegotiatedMtu] = useState<number | null>(null);
+  const [isInspecting, setIsInspecting] = useState(false);
+  const [inspection, setInspection] = useState<Array<{ serviceUUID: string; characteristics: Array<{ uuid: string; flags: string[] }> }>>([]);
+  const [selectedServiceUUID, setSelectedServiceUUID] = useState<string | undefined>(undefined);
+  const [selectedCharUUID, setSelectedCharUUID] = useState<string | undefined>(undefined);
 
   // Alvos opcionais: defina se seu periférico exigir UUIDs específicos
   // ex.: const TARGET_SERVICE_UUID = 'd0611e78-bbb4-4591-a5f8-487910ae4366';
@@ -297,6 +301,67 @@ export default function App() {
 
   const deviceList = useMemo(() => Array.from(devices.values()).sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999)), [devices]);
 
+  const inspectGATT = useCallback(async () => {
+    if (!connectedDevice || !managerRef.current) return;
+    try {
+      setIsInspecting(true);
+      const services = await managerRef.current.servicesForDevice(connectedDevice.id);
+      const result: Array<{ serviceUUID: string; characteristics: Array<{ uuid: string; flags: string[] }> }> = [];
+      for (const svc of services) {
+        const chars = await managerRef.current.characteristicsForDevice(connectedDevice.id, svc.uuid);
+        const mapped = chars.map(ch => {
+          const flags: string[] = [];
+          if (ch.isReadable) flags.push('READ');
+          if (ch.isWritableWithoutResponse) flags.push('WRITE_NR');
+          if (ch.isWritableWithResponse) flags.push('WRITE_R');
+          if (ch.isNotifiable) flags.push('NOTIFY');
+          if (ch.isIndicatable) flags.push('INDICATE');
+          return { uuid: ch.uuid, flags };
+        });
+        result.push({ serviceUUID: svc.uuid, characteristics: mapped });
+      }
+      setInspection(result);
+      setStatusText('Inspeção concluída');
+    } catch (e) {
+      console.error('Falha ao inspecionar GATT', e);
+      Alert.alert('Erro', 'Falha ao inspecionar Services/Characteristics');
+    }
+  }, [connectedDevice]);
+
+  const applySelectionAsWritable = useCallback(async () => {
+    if (!connectedDevice || !managerRef.current) {
+      Alert.alert('Sem conexão', 'Conecte-se a um dispositivo antes de aplicar a seleção.');
+      return;
+    }
+    if (!selectedServiceUUID) {
+      Alert.alert('Seleção incompleta', 'Selecione um Service para aplicar.');
+      return;
+    }
+    try {
+      const chars = await managerRef.current.characteristicsForDevice(connectedDevice.id, selectedServiceUUID);
+      let chosen: Characteristic | undefined;
+      if (selectedCharUUID) {
+        chosen = chars.find(ch => ch.uuid.toLowerCase() === selectedCharUUID.toLowerCase());
+        if (chosen && !(chosen.isWritableWithResponse || chosen.isWritableWithoutResponse)) {
+          chosen = undefined; // não gravável
+        }
+      }
+      if (!chosen) {
+        chosen = chars.find(ch => ch.isWritableWithoutResponse) || chars.find(ch => ch.isWritableWithResponse);
+      }
+      if (!chosen) {
+        Alert.alert('Não gravável', 'O Service selecionado não possui characteristic gravável.');
+        return;
+      }
+      setWritableCharacteristic(chosen);
+      setStatusText(`Selecionado p/ escrita: ${chosen.serviceUUID} / ${chosen.uuid}`);
+      console.log('Writable definido por seleção:', chosen.serviceUUID, chosen.uuid);
+    } catch (e) {
+      console.error('Falha ao aplicar seleção como writable', e);
+      Alert.alert('Erro', 'Falha ao aplicar a seleção');
+    }
+  }, [connectedDevice, managerRef, selectedCharUUID, selectedServiceUUID]);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Controle BLE</Text>
@@ -344,6 +409,20 @@ export default function App() {
         />
       ) : (
         <View style={styles.commands}>
+          <View style={styles.inspectionRow}>
+            <Pressable style={styles.inspectButton} onPress={inspectGATT}>
+              <Text style={styles.inspectButtonText}>Inspecionar UUIDs</Text>
+            </Pressable>
+            {inspection.length > 0 ? (
+              <Pressable style={styles.clearInspectButton} onPress={() => setInspection([])}>
+                <Text style={styles.clearInspectButtonText}>Limpar</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.applySelButton} onPress={applySelectionAsWritable}>
+              <Text style={styles.applySelButtonText}>Aplicar seleção</Text>
+            </Pressable>
+          </View>
+
           <Pressable style={styles.cmdButton} onPress={() => sendCommand('Iniciar')}>
             <Text style={styles.cmdButtonText}>Iniciar</Text>
           </Pressable>
@@ -359,6 +438,23 @@ export default function App() {
           <Pressable style={[styles.cmdButton, styles.explodir]} onPress={() => sendCommand('Explodir')}>
             <Text style={styles.cmdButtonText}>Explodir</Text>
           </Pressable>
+
+          {inspection.length > 0 ? (
+            <View style={styles.inspectList}>
+              <Text style={styles.inspectTitle}>Services e Characteristics</Text>
+              {inspection.map(sec => (
+                <Pressable key={sec.serviceUUID} style={[styles.serviceBlock, selectedServiceUUID && selectedServiceUUID.toLowerCase() === sec.serviceUUID.toLowerCase() ? styles.selectedBlock : undefined]} onPress={() => { setSelectedServiceUUID(sec.serviceUUID); setSelectedCharUUID(undefined); }}>
+                  <Text style={styles.serviceUuid}>Service: {sec.serviceUUID}</Text>
+                  {sec.characteristics.map(c => (
+                    <Pressable key={`${sec.serviceUUID}-${c.uuid}`} style={[styles.charRow, selectedCharUUID && selectedCharUUID.toLowerCase() === c.uuid.toLowerCase() ? styles.selectedRow : undefined]} onPress={() => { setSelectedServiceUUID(sec.serviceUUID); setSelectedCharUUID(c.uuid); }}>
+                      <Text style={styles.charUuid}>Char: {c.uuid}</Text>
+                      <Text style={styles.charFlags}>[{c.flags.join(', ')}]</Text>
+                    </Pressable>
+                  ))}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -463,5 +559,83 @@ const styles = StyleSheet.create({
   },
   explodir: {
     backgroundColor: '#dc2626',
+  },
+  inspectionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  inspectButton: {
+    backgroundColor: '#10b981',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  inspectButtonText: {
+    color: '#06291f',
+    fontWeight: '700',
+  },
+  clearInspectButton: {
+    backgroundColor: '#6b7280',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  clearInspectButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  inspectList: {
+    marginTop: 12,
+    backgroundColor: '#0f172a',
+    padding: 10,
+    borderRadius: 8,
+    gap: 8,
+  },
+  inspectTitle: {
+    color: '#93c5fd',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  serviceBlock: {
+    backgroundColor: '#111827',
+    padding: 8,
+    borderRadius: 8,
+  },
+  serviceUuid: {
+    color: '#fcd34d',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  charRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  charUuid: {
+    color: '#e5e7eb',
+    flex: 1,
+    marginRight: 8,
+  },
+  charFlags: {
+    color: '#9ca3af',
+  },
+  applySelButton: {
+    backgroundColor: '#22c55e',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  applySelButtonText: {
+    color: '#052e16',
+    fontWeight: '800',
+  },
+  selectedBlock: {
+    borderWidth: 1,
+    borderColor: '#22c55e',
+  },
+  selectedRow: {
+    borderWidth: 1,
+    borderColor: '#60a5fa',
   },
 });
