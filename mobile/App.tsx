@@ -23,11 +23,9 @@ export default function App() {
   const [statusText, setStatusText] = useState<string>('');
   const [negotiatedMtu, setNegotiatedMtu] = useState<number | null>(null);
 
-  // Alvos opcionais: defina se seu periférico exigir UUIDs específicos
-  // ex.: const TARGET_SERVICE_UUID = 'd0611e78-bbb4-4591-a5f8-487910ae4366';
-  // ex.: const TARGET_WRITE_CHAR_UUID = '8667556c-9a37-4c91-84ed-54ee27d90049';
-  const TARGET_SERVICE_UUID: string | undefined = undefined;
-  const TARGET_WRITE_CHAR_UUID: string | undefined = undefined;
+  // Alvos: UUIDs específicos do seu dispositivo (apontam diretamente para o service/characteristic corretos)
+  const TARGET_SERVICE_UUID: string | undefined = 'd0611e78-bbb4-4591-a5f8-487910ae4366';
+  const TARGET_WRITE_CHAR_UUID: string | undefined = '8667556c-9a37-4c91-84ed-54ee27d90049';
   const PREFERRED_MTU = 185; // Android apenas
 
   const sleep = useCallback((ms: number) => new Promise((r) => setTimeout(r, ms)), []);
@@ -206,7 +204,12 @@ export default function App() {
       setConnectedDevice(discovered);
       setStatusText('Descobrindo services/characteristics...');
 
-      const writable = await pickWritableCharacteristic(discovered.id);
+      let writable = await pickWritableCharacteristic(discovered.id);
+      if (!writable && TARGET_SERVICE_UUID) {
+        // Tentar novamente após pequeno delay, alguns devices precisam de tempo
+        await sleep(250);
+        writable = await pickWritableCharacteristic(discovered.id);
+      }
 
       if (!writable) {
         console.error('Nenhuma characteristic gravável encontrada');
@@ -276,13 +279,28 @@ export default function App() {
 
       setStatusText(`Enviando: ${commandLabel}`);
       for (const chunk of chunks) {
-        try {
-          await writeChunk(chunk, true);
-        } catch (errFirst) {
-          console.warn('Falha write sem resposta, tentando com resposta', errFirst);
-          await sleep(50);
-          await writeChunk(chunk, false);
+        let sent = false;
+        // até 3 tentativas alternando método
+        for (let attempt = 0; attempt < 3 && !sent; attempt++) {
+          try {
+            const preferNoResp = attempt % 2 === 0; // alterna 0: noResp, 1: withResp, 2: noResp...
+            await writeChunk(chunk, preferNoResp);
+            sent = true;
+          } catch (errTry) {
+            console.warn(`Falha ao enviar chunk (tentativa ${attempt + 1})`, errTry);
+            await sleep(80);
+            // Em Android, alguns devices requerem bonding/pareamento antes de escrita
+            if (Platform.OS === 'android' && (attempt === 1)) {
+              try {
+                // RN BLE PLX 3.x: createBondIfNeeded não existe; se necessário, peça ao usuário para parear nas configurações
+                console.warn('Considere parear o dispositivo nas Configurações do sistema se persistir.');
+              } catch (bondErr) {
+                console.warn('Bonding falhou/indisponível', bondErr);
+              }
+            }
+          }
         }
+        if (!sent) throw new Error('Falha ao enviar chunk após retries');
         await sleep(20);
       }
 
