@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "RodaRico",
+    "slug": "rodarico",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -14,17 +14,20 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.mobile",
+      "bundleIdentifier": "br.com.rn360.rodarico",
+      "icon": "./AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png",
       "infoPlist": {
         "NSBluetoothPeripheralUsageDescription": "Este aplicativo usa Bluetooth para se conectar a dispositivos próximos.",
         "NSBluetoothAlwaysUsageDescription": "Este aplicativo precisa de acesso ao Bluetooth para comunicar com dispositivos.",
         "NSLocationWhenInUseUsageDescription": "O Bluetooth pode exigir localização para descobrir dispositivos próximos.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "O Bluetooth pode exigir localização para descobrir dispositivos próximos."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "O Bluetooth pode exigir localização para descobrir dispositivos próximos.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "icon": "./AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -43,7 +46,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.anonymous.mobile"
+      "package": "br.com.rn360.rodarico"
     },
     "web": {
       "favicon": "./assets/favicon.png"
