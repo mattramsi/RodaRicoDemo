@@ -21,19 +21,22 @@
    - Conexão para `/ws/time` e `/ws/partida`
    - Reconexão automática com backoff exponencial (1s, 2s, 4s, ... até 30s)
    - Sistema de listeners para mensagens
-   - Suporte para todos os comandos WS necessários
+   - Suporte para todas as ações WebSocket necessárias
 
 4. **QuestionService** (`services/QuestionService.ts`)
    - Busca de perguntas aleatórias via GET `/perguntas/random/5`
+   - Renovação automática de token em caso de 401
 
 ### Telas
 1. **LoginScreen** - Autenticação com nickname
 2. **BluetoothConnectionScreen** - Scan, conexão e opção de pular
-3. **TeamsScreen** - Criar/entrar em times via WebSocket
-4. **LobbyScreen** - Inicia partida, conecta WS partida
-5. **QuizScreen** - Timer 10 min, progress 1/5 a 5/5, respostas, comandos Bluetooth
-6. **ResultScreen** - Exibe pontuação, botão desarmar
-7. **PlayAgainScreen** - Jogar novamente ou voltar ao lobby
+3. **TeamsMainScreen** - Tela principal com opções de criar/buscar times
+4. **CreateTeamScreen** - Criar novo time via WebSocket
+5. **BrowseTeamsScreen** - Buscar e entrar em times existentes
+6. **LobbyScreen** - Exibe jogadores, inicia partida
+7. **QuizScreen** - Timer 10 min, progress 1/5 a 5/5, respostas, comandos Bluetooth
+8. **ResultScreen** - Exibe pontuação, botão desarmar
+9. **PlayAgainScreen** - Jogar novamente ou voltar ao lobby
 
 ### Context/State Management
 - **GameContext** - Gerencia estado global do jogo:
@@ -51,10 +54,62 @@
 1. **Login** → POST `/api/auth` → Armazena tokens
 2. **Bluetooth** → Scan → Conectar OU Pular (mock) → Avança para Times
 3. **Times** → WS `/ws/time` → createTime/joinTeam → Navega para Lobby
-4. **Lobby** → "Iniciar desarme" → WS `/ws/partida` → iniciarPartida → Bluetooth INICIAR → GET `/perguntas/random/5` → Quiz
+4. **Lobby** → "Iniciar desarme" → WS `/ws/partida` → iniciarPartida → Backend arma bomba automaticamente → Bluetooth INICIAR → GET `/perguntas/random/5` → Quiz
 5. **Quiz** → Timer 10:00, progress 1/5 → Responde → WS answerPerguntas → Se errou: Bluetooth ACELERAR → Se tempo zerou: Bluetooth EXPLODIR → Resultado
-6. **Resultado** → Mostra score → "Desarmar Bomba" → Bluetooth DESARMAR + WS finalizarPartida (desarme automático via WS)
-7. **Jogar Novamente** → Bluetooth REINICIAR → Reset estado → Volta ao Lobby
+6. **Resultado** → Mostra score → "Desarmar Bomba" → WS finalizarPartida → Backend desarma bomba automaticamente → Bluetooth DESARMAR
+7. **Jogar Novamente** → Bluetooth REINICIAR → Reset estado → Volta ao TeamsMain
+
+## 🔌 Ações WebSocket
+
+### Endpoint `/ws/time`
+- `createTime`: Criar novo time
+  - Payload: `{ action: 'createTime', data: { nome: string } }`
+  - Resposta: `{ success: true, action: 'createTime', data: { data: { response: { id, nome, participantes } } } }`
+
+- `getTime`: Buscar informações do time
+  - Payload: `{ action: 'getTime', data: { id: number } }`
+  - Resposta: `{ success: true, action: 'getTime', data: { id, nome, participantes } }`
+
+- `joinTeam`: Entrar em um time
+  - Payload: `{ action: 'joinTeam', data: { id: number } }`
+  - Resposta: `{ success: true, action: 'joinTeam', data: { data: { response: { id, nome, participantes } } } }`
+
+### Endpoint `/ws/partida`
+- `iniciarPartida`: Iniciar nova partida
+  - Payload: `{ action: 'iniciarPartida', data: { timeId: number, cabineId: number } }`
+  - Resposta: `{ success: true, action: 'iniciarPartida', data: { partidaId: number, codigo: number } }`
+  - **Backend**: Arma a bomba automaticamente ao processar esta ação
+
+- `answerPerguntas`: Responder pergunta
+  - Payload: `{ action: 'answerPerguntas', data: { perguntaId: number, answer: string, partidaId: number } }`
+  - Resposta: `{ success: true, action: 'answerPergunta', data: { correct: boolean, pontos: number } }`
+
+- `finalizarPartida`: Finalizar partida
+  - Payload: `{ action: 'finalizarPartida', data: { id: number, result: boolean } }`
+  - Resposta: `{ success: true, action: 'finalizarPartida', data: { id, result } }`
+  - **Backend**: Desarma a bomba automaticamente ao processar esta ação
+
+## 📡 Comandos Bluetooth
+
+Os comandos Bluetooth são enviados para sincronizar o dispositivo físico:
+
+- `INICIAR`: Enviado após `iniciarPartida` (bomba já armada pelo backend)
+- `DESARMAR`: Enviado após `finalizarPartida` (bomba já desarmada pelo backend)
+- `ACELERAR`: Enviado a cada resposta errada no Quiz
+- `EXPLODIR`: Enviado se tempo zerar ou todas respostas erradas
+- `REINICIAR`: Enviado na tela PlayAgain
+
+## 🔄 Sincronização Backend/Frontend
+
+### Armar/Desarmar Bomba
+- **Backend**: Processa automaticamente ao receber `iniciarPartida` e `finalizarPartida`
+- **Frontend**: Envia comandos Bluetooth apenas para sincronizar dispositivo físico
+- **Não há** ação WebSocket `armarDesarmarBomba` - foi removida
+
+### Pontuação
+- Calculada no frontend baseado nas respostas corretas
+- Validada pelo backend ao finalizar partida
+- Exibida na tela de Resultado
 
 ## ⚠️ Próximos Passos
 
@@ -69,29 +124,12 @@ Se houver erros com tipos, pode ser necessário instalar:
 npm install --save-dev @types/react-native
 ```
 
-### 2. Ajustes Baseados na API Real
+### 2. Melhorias Sugeridas
 
-Alguns tipos de mensagens WebSocket podem precisar de ajuste conforme a API real:
-
-- `partidaIniciada` - Pode ter nome diferente
-- `answerResult` - Estrutura de resposta pode variar
-- `timeCreated`, `timeJoined` - Verificar nomes exatos das mensagens
-
-### 3. Melhorias Sugeridas
-
-1. **cabineId**: Atualmente usa hash simples. Ideal seria:
-   - Armazenar ID real quando conectar Bluetooth
-   - Usar UUID do dispositivo ou ID fornecido pelo servidor
-
-2. **Score Updates**: Atualmente atualiza quando recebe resposta. Pode precisar:
-   - Listener dedicado para atualizações de score
-   - Sincronização periódica com servidor
-
-3. **Reconexão durante Quiz**: Implementar pausa de inputs quando BT/WS desconecta
-
-4. **Validação de Respostas**: Verificar se todas as perguntas foram respondidas antes de finalizar
-
-5. **Tratamento de Erros**: Melhorar feedback visual para erros de conexão
+1. **Reconexão durante Quiz**: Implementar pausa de inputs quando BT/WS desconecta
+2. **Validação de Respostas**: Verificar se todas as perguntas foram respondidas antes de finalizar
+3. **Tratamento de Erros**: Melhorar feedback visual para erros de conexão
+4. **Sincronização de Score**: Considerar listener dedicado para atualizações de score do servidor
 
 ## 📝 Notas
 
@@ -99,10 +137,10 @@ Alguns tipos de mensagens WebSocket podem precisar de ajuste conforme a API real
 - Bluetooth mock mode permite testar sem dispositivo físico
 - WebSocket tem reconexão automática com backoff exponencial
 - Timer do quiz inicia em 600 segundos (10 minutos)
+- Armar/desarmar bomba é automático pelo backend - frontend apenas sincroniza dispositivo físico
 
 ## 🔧 Configuração
 
 Certifique-se de que o `app.json` tem as permissões Bluetooth configuradas (já está configurado).
 
 Para iOS, pode ser necessário ajustar `Info.plist` se houver problemas com Bluetooth.
-
