@@ -33,12 +33,10 @@ export class WebSocketService {
   }
 
   async connect(endpoint: 'time' | 'partida'): Promise<void> {
-    // Desconectar conexão anterior se houver
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log('[WebSocket] Desconectando conexão anterior');
-      this.isIntentionallyClosed = true;
-      this.ws.close();
-      this.ws = null;
+    // Reset completo antes de conectar (limpa estado anterior)
+    if (this.ws || this.reconnectTimeout) {
+      console.log('[WebSocket] Resetando conexão anterior');
+      this.reset();
     }
     
     const token = await AuthService.getAccessToken();
@@ -55,7 +53,7 @@ export class WebSocketService {
     console.log('[WebSocket] URL:', this.url.replace(cleanToken, 'TOKEN_HIDDEN'));
     console.log('[WebSocket] Token length:', cleanToken.length);
     
-    // Reset reconnect attempts quando conectando manualmente
+    // Garantir que está pronto para conectar
     this.reconnectAttempts = 0;
     this.isIntentionallyClosed = false;
     
@@ -111,23 +109,31 @@ export class WebSocketService {
   }
 
   private async attemptReconnect(): Promise<void> {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
+    // Limpar timeout anterior se existir
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    // Incrementar tentativas ANTES de verificar o máximo
+    this.reconnectAttempts++;
+
+    if (this.reconnectAttempts > this.maxReconnectAttempts) {
+      console.error(`[WebSocket] Máximo de ${this.maxReconnectAttempts} tentativas de reconexão atingido`);
       return;
     }
 
-    const delay = this.getBackoffDelay(this.reconnectAttempts);
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
+    const delay = this.getBackoffDelay(this.reconnectAttempts - 1);
+    console.log(`[WebSocket] Reconectando em ${delay}ms (tentativa ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     this.reconnectTimeout = setTimeout(async () => {
-      this.reconnectAttempts++;
+      this.reconnectTimeout = null;
       try {
         await this.connectInternal();
+        console.log('[WebSocket] Reconexão bem-sucedida!');
       } catch (error) {
-        console.error('Reconnection failed:', error);
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-          this.attemptReconnect();
-        }
+        console.error(`[WebSocket] Falha na tentativa ${this.reconnectAttempts}:`, error);
+        // Não chamar attemptReconnect aqui - o onclose vai fazer isso
       }
     }, delay);
   }
@@ -216,6 +222,33 @@ export class WebSocketService {
       this.ws.close();
       this.ws = null;
     }
+    this.notifyConnectionListeners(false);
+  }
+
+  /**
+   * Reset completo do WebSocket - limpa todo o estado e para reconexões
+   * Use quando voltar ao lobby ou resetar o jogo
+   */
+  reset(): void {
+    console.log('[WebSocket] Reset completo do serviço');
+    this.isIntentionallyClosed = true;
+    
+    // Limpar timeout de reconexão
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    
+    // Desconectar WebSocket
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    
+    // Resetar contador de tentativas
+    this.reconnectAttempts = 0;
+    
+    // Notificar listeners
     this.notifyConnectionListeners(false);
   }
 }

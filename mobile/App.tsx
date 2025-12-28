@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 // @ts-ignore - Will be available after npm install
 import { NavigationContainer } from '@react-navigation/native';
 // @ts-ignore - Will be available after npm install
@@ -7,6 +7,8 @@ import { createNativeStackNavigator, NativeStackScreenProps } from '@react-navig
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { GameProvider } from './context/GameContext';
+import { BluetoothPermissionScreen } from './screens/BluetoothPermissionScreen';
+import { BluetoothBlockedScreen } from './screens/BluetoothBlockedScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { BluetoothConnectionScreen } from './screens/BluetoothConnectionScreen';
 import { TeamsMainScreen } from './screens/TeamsMainScreen';
@@ -16,8 +18,12 @@ import { LobbyScreen } from './screens/LobbyScreen';
 import { QuizScreen } from './screens/QuizScreen';
 import { ResultScreen } from './screens/ResultScreen';
 import { PlayAgainScreen } from './screens/PlayAgainScreen';
+import { PERMISSIONS, checkMultiple, RESULTS, Permission } from 'react-native-permissions';
+import { Platform, View, Text } from 'react-native';
 
 export type RootStackParamList = {
+  BluetoothPermission: undefined;
+  BluetoothBlocked: undefined;
   Login: undefined;
   BluetoothConnection: undefined;
   TeamsMain: undefined;
@@ -31,6 +37,8 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+type BluetoothPermissionScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothPermission'>;
+type BluetoothBlockedScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothBlocked'>;
 type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
 type BluetoothScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothConnection'>;
 type TeamsMainScreenProps = NativeStackScreenProps<RootStackParamList, 'TeamsMain'>;
@@ -44,6 +52,63 @@ type PlayAgainScreenProps = NativeStackScreenProps<RootStackParamList, 'PlayAgai
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isBluetoothConnected, setIsBluetoothConnected] = useState(false);
+  const [hasBluetoothPermission, setHasBluetoothPermission] = useState<boolean | null>(null);
+  const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
+  const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList>('BluetoothPermission');
+
+  useEffect(() => {
+    checkBluetoothPermissions();
+  }, []);
+
+  const checkBluetoothPermissions = async () => {
+    try {
+      let permissions: Permission[] = [];
+      
+      if (Platform.OS === 'android') {
+        permissions = [
+          PERMISSIONS.ANDROID.BLUETOOTH_SCAN,
+          PERMISSIONS.ANDROID.BLUETOOTH_CONNECT,
+          PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
+        ];
+      } else {
+        // iOS: No iOS 13+, não há permissão explícita de Bluetooth
+        // A permissão de Localização é necessária para escanear dispositivos Bluetooth
+        permissions = [
+          PERMISSIONS.IOS.LOCATION_WHEN_IN_USE,
+        ];
+      }
+
+      console.log('[App] Verificando permissões:', permissions);
+      const results = await checkMultiple(permissions);
+      console.log('[App] Resultados:', results);
+      
+      const allGranted = Object.values(results).every(
+        (result) => result === RESULTS.GRANTED || result === RESULTS.LIMITED
+      );
+
+      console.log('[App] Todas as permissões concedidas?', allGranted);
+      setHasBluetoothPermission(allGranted);
+      setInitialRoute(allGranted ? 'Login' : 'BluetoothPermission');
+      setIsCheckingPermissions(false);
+    } catch (error) {
+      console.error('[App] Erro ao verificar permissões', error);
+      setHasBluetoothPermission(false);
+      setInitialRoute('BluetoothPermission');
+      setIsCheckingPermissions(false);
+    }
+  };
+
+  // Mostra loading enquanto verifica permissões
+  if (isCheckingPermissions) {
+    return (
+      <SafeAreaProvider>
+        <View style={{ flex: 1, backgroundColor: '#0b1320', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontSize: 16 }}>Carregando...</Text>
+        </View>
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -54,8 +119,33 @@ export default function App() {
               headerShown: false,
               contentStyle: { backgroundColor: '#0b1320' },
             }}
-            initialRouteName="Login"
+            initialRouteName={initialRoute}
           >
+            <Stack.Screen name="BluetoothPermission">
+              {(props: BluetoothPermissionScreenProps) => (
+                <BluetoothPermissionScreen
+                  onPermissionGranted={() => {
+                    setHasBluetoothPermission(true);
+                    props.navigation.replace('Login');
+                  }}
+                  onPermissionDenied={() => {
+                    props.navigation.replace('BluetoothBlocked');
+                  }}
+                />
+              )}
+            </Stack.Screen>
+
+            <Stack.Screen name="BluetoothBlocked">
+              {(props: BluetoothBlockedScreenProps) => (
+                <BluetoothBlockedScreen
+                  onPermissionGranted={() => {
+                    setHasBluetoothPermission(true);
+                    props.navigation.replace('Login');
+                  }}
+                />
+              )}
+            </Stack.Screen>
+
             <Stack.Screen name="Login">
               {(props: LoginScreenProps) => (
                 <LoginScreen
@@ -164,7 +254,8 @@ export default function App() {
                 <PlayAgainScreen
                   {...props}
                   onPlayAgain={() => {
-                    props.navigation.navigate('TeamsMain');
+                    // Voltar ao lobby para iniciar nova partida com mesmo time/cabine
+                    props.navigation.navigate('Lobby');
                   }}
                   onBackToLobby={() => {
                     props.navigation.navigate('Lobby');

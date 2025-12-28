@@ -180,10 +180,26 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
       )}
 
       <View style={styles.actions}>
-        <Pressable style={styles.secondaryButton} onPress={onPlayAgain}>
+        <Pressable 
+          style={styles.secondaryButton} 
+          onPress={() => {
+            // Reset WebSocket ao jogar novamente
+            console.log('[ResultScreen] Jogar Novamente - Resetando WebSocket');
+            wsService.reset();
+            onPlayAgain();
+          }}
+        >
           <Text style={styles.secondaryButtonText}>Jogar Novamente</Text>
         </Pressable>
-        <Pressable style={styles.secondaryButton} onPress={onBackToLobby}>
+        <Pressable 
+          style={styles.secondaryButton} 
+          onPress={() => {
+            // Reset WebSocket ao voltar ao lobby
+            console.log('[ResultScreen] Voltar ao Lobby - Resetando WebSocket');
+            wsService.reset();
+            onBackToLobby();
+          }}
+        >
           <Text style={styles.secondaryButtonText}>Voltar ao Lobby</Text>
         </Pressable>
       </View>

@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { bluetoothService } from '../services/BluetoothService';
+import { wsService } from '../services/WebSocketService';
 import { useGame } from '../context/GameContext';
 
 interface PlayAgainScreenProps {
@@ -24,17 +25,28 @@ export const PlayAgainScreen: React.FC<PlayAgainScreenProps> = ({
   const handlePlayAgain = async () => {
     setLoading(true);
     try {
-      // Enviar REINICIAR via Bluetooth
+      console.log('[PlayAgain] Iniciando nova partida...');
+      
+      // 1. Enviar REINICIAR via Bluetooth
       await bluetoothService.sendCommand('REINICIAR');
+      console.log('[PlayAgain] Comando REINICIAR enviado');
 
-      // Reset game state
+      // 2. Reset WebSocket (importante para limpar conexão de partida anterior)
+      wsService.reset();
+      console.log('[PlayAgain] WebSocket resetado');
+
+      // 3. Reset game state (mantém team e cabineId)
       resetGame();
+      console.log('[PlayAgain] Estado do jogo resetado');
 
       setLoading(false);
+      
+      // 4. Voltar ao lobby para iniciar nova partida
       onPlayAgain();
     } catch (error) {
-      console.error('Failed to send REINICIAR:', error);
-      // Continue anyway
+      console.error('[PlayAgain] Erro ao reiniciar:', error);
+      // Continue anyway - reset mesmo com erro no bluetooth
+      wsService.reset();
       resetGame();
       setLoading(false);
       onPlayAgain();
@@ -60,7 +72,11 @@ export const PlayAgainScreen: React.FC<PlayAgainScreenProps> = ({
 
         <Pressable
           style={styles.secondaryButton}
-          onPress={onBackToLobby}
+          onPress={() => {
+            // Reset WebSocket ao voltar ao lobby
+            wsService.reset();
+            onBackToLobby();
+          }}
           disabled={loading}
         >
           <Text style={styles.secondaryButtonText}>Voltar ao Lobby</Text>
