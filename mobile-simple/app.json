@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "App Roda Rico Teste",
+    "slug": "rodaricoteste",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b1320"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "br.com.rn360.rodaricoteste",
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Este aplicativo usa Bluetooth para se conectar ao dispositivo Bomba e controlar estímulos.",
+        "NSBluetoothPeripheralUsageDescription": "Este aplicativo usa Bluetooth para se conectar ao dispositivo Bomba.",
+        "NSLocationWhenInUseUsageDescription": "O Bluetooth pode exigir localização para descobrir dispositivos próximos.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "O Bluetooth pode exigir localização para descobrir dispositivos próximos.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b1320"
+      },
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "package": "br.com.rn360.rodaricoteste"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": ["peripheral", "central"],
+          "bluetoothAlwaysPermission": "Este aplicativo usa Bluetooth para se conectar ao dispositivo Bomba."
+        }
+      ]
+    ]
+  }
+}
+
