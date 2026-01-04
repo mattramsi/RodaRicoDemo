@@ -19,10 +19,21 @@ interface LobbyScreenProps {
 }
 
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
-  const { team, players, setPlayers, setPartidaId, setCabineId, setQuestions, setGameState } = useGame();
+  const { 
+    team, 
+    players, 
+    cabineId,
+    bluetoothDeviceName,
+    cabinRole,
+    playersInCabin,
+    isMockMode,
+    setPlayers, 
+    setPartidaId, 
+    setQuestions, 
+    setGameState 
+  } = useGame();
   const [loading, setLoading] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
-  const [cabineIdInput, setCabineIdInput] = useState('');
 
   useEffect(() => {
     // Verificar se já está conectado (pode estar conectado ao WebSocket de times)
@@ -88,19 +99,19 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
       return;
     }
 
-    if (!cabineIdInput.trim()) {
-      Alert.alert('Erro', 'Digite o ID da cabine');
+    if (!cabineId) {
+      Alert.alert('Erro', 'ID da cabine não encontrado. Escaneie o QR Code novamente.');
       return;
     }
 
-    const cabineIdNum = parseInt(cabineIdInput.trim());
-    if (isNaN(cabineIdNum)) {
-      Alert.alert('Erro', 'ID da cabine deve ser um número válido');
+    // Apenas o líder pode iniciar o jogo
+    if (cabinRole !== 'leader') {
+      Alert.alert('Atenção', 'Apenas o líder do time pode iniciar o desafio');
       return;
     }
 
     if (!bluetoothService.isConnected() && !bluetoothService.isMockModeEnabled()) {
-      Alert.alert('Erro', 'Conecte-se a uma cabine primeiro');
+      Alert.alert('Erro', 'Conecte-se à cabine primeiro');
       return;
     }
 
@@ -162,7 +173,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
           console.log('[Lobby] ✅ Partida iniciada via WebSocket! ID:', partidaIdFromWS, 'Código:', codigo);
           
           setPartidaId(partidaIdFromWS);
-          setCabineId(cabineIdNum);
+          // cabineId já foi setado no QRCodeScanner
 
           // 3. Enviar Bluetooth INICIAR
           try {
@@ -224,7 +235,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
         action: 'iniciarPartida' as const,
         data: {
           timeId: team.id,
-          cabineId: cabineIdNum,
+          cabineId: cabineId,
         },
       };
       
@@ -232,7 +243,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
       console.log('[Lobby] Detalhes:', {
         timeId: team.id,
         timeNome: team.nome,
-        cabineId: cabineIdNum,
+        cabineId: cabineId,
       });
       
       wsService.send(iniciarPartidaMessage);
@@ -250,52 +261,89 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
     }
   };
 
+  // Usar playersInCabin se disponível (do WebSocket), senão converter players local para formato compatível
+  const displayPlayers = playersInCabin.length > 0 
+    ? playersInCabin 
+    : players.map(p => ({ ...p, isLeader: false, joinedAt: new Date().toISOString() }));
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Lobby do Time</Text>
+      
       {team && (
         <Text style={styles.teamName}>{team.nome}</Text>
       )}
 
-      {players.length > 0 && (
+      {/* Info da Cabine */}
+      <View style={styles.cabinInfoSection}>
+        <Text style={styles.sectionTitle}>📱 Informações da Cabine</Text>
+        
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>ID:</Text>
+          <Text style={styles.infoValue}>#{cabineId}</Text>
+        </View>
+        
+        {bluetoothDeviceName && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Bluetooth:</Text>
+            <Text style={styles.infoValueMono}>{bluetoothDeviceName}</Text>
+          </View>
+        )}
+        
+        {cabinRole && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Função:</Text>
+            <Text style={[styles.infoValue, cabinRole === 'leader' && styles.leaderText]}>
+              {cabinRole === 'leader' ? '👑 Líder' : '👤 Participante'}
+            </Text>
+          </View>
+        )}
+        
+        {isMockMode && (
+          <View style={styles.mockBadge}>
+            <Text style={styles.mockBadgeText}>🧪 MODO MOCK ATIVO</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Lista de Jogadores */}
+      {displayPlayers.length > 0 && (
         <View style={styles.playersSection}>
-          <Text style={styles.sectionTitle}>Jogadores</Text>
+          <Text style={styles.sectionTitle}>👥 Jogadores ({displayPlayers.length})</Text>
           <FlatList
-            data={players}
+            data={displayPlayers}
             keyExtractor={(item) => String(item.id)}
             renderItem={({ item }) => (
               <View style={styles.playerItem}>
-                <Text style={styles.playerName}>{item.nickname}</Text>
+                <Text style={styles.playerName}>
+                  {item.isLeader ? '👑 ' : ''}
+                  {item.nickname}
+                  {item.isLeader ? ' (Líder)' : ''}
+                </Text>
               </View>
             )}
           />
         </View>
       )}
 
-      <View style={styles.cabineIdSection}>
-        <Text style={styles.sectionTitle}>ID da Cabine</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Digite o ID da cabine"
-          placeholderTextColor="#9ca3af"
-          value={cabineIdInput}
-          onChangeText={setCabineIdInput}
-          keyboardType="numeric"
-          editable={!loading}
-        />
-      </View>
-
-      <Pressable
-        style={[styles.startButton, (loading || !cabineIdInput.trim()) && styles.buttonDisabled]}
-        onPress={handleStartGame}
-        disabled={loading || !cabineIdInput.trim()}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.startButtonText}>Iniciar Desarme</Text>
-        )}
-      </Pressable>
+      {/* Botão Iniciar (apenas para líder) */}
+      {cabinRole === 'leader' ? (
+        <Pressable
+          style={[styles.startButton, loading && styles.buttonDisabled]}
+          onPress={handleStartGame}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.startButtonText}>🚀 Iniciar Desafio</Text>
+          )}
+        </Pressable>
+      ) : (
+        <View style={styles.waitingBox}>
+          <Text style={styles.waitingText}>⏳ Aguardando o líder iniciar o desafio...</Text>
+        </View>
+      )}
 
       {loading && (
         <Text style={styles.warning}>Conectando ao servidor de partidas...</Text>
@@ -322,15 +370,57 @@ const styles = StyleSheet.create({
     color: '#3b82f6',
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 24,
+    marginBottom: 16,
     textAlign: 'center',
+  },
+  cabinInfoSection: {
+    backgroundColor: '#1f2937',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3b82f6',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  infoLabel: {
+    color: '#9ca3af',
+    fontSize: 14,
+  },
+  infoValue: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  infoValueMono: {
+    color: '#3b82f6',
+    fontSize: 12,
+    fontFamily: 'monospace',
+    fontWeight: '600',
+  },
+  leaderText: {
+    color: '#fbbf24',
+  },
+  mockBadge: {
+    backgroundColor: '#8b5cf6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  mockBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   playersSection: {
     flex: 1,
-    marginBottom: 24,
-  },
-  cabineIdSection: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   sectionTitle: {
     color: '#fff',
@@ -338,20 +428,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 12,
   },
-  input: {
-    backgroundColor: '#111827',
-    color: '#fff',
-    padding: 16,
-    borderRadius: 8,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#374151',
-  },
   playerItem: {
     backgroundColor: '#111827',
     padding: 12,
     borderRadius: 8,
     marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#374151',
   },
   playerName: {
     color: '#fff',
@@ -360,7 +443,7 @@ const styles = StyleSheet.create({
   startButton: {
     backgroundColor: '#10b981',
     paddingVertical: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
     marginBottom: 16,
   },
@@ -371,6 +454,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '700',
+  },
+  waitingBox: {
+    backgroundColor: '#1f2937',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#374151',
+    borderStyle: 'dashed',
+  },
+  waitingText: {
+    color: '#9ca3af',
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   warning: {
     color: '#fbbf24',

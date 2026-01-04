@@ -10,7 +10,10 @@ import { GameProvider } from './context/GameContext';
 import { BluetoothPermissionScreen } from './screens/BluetoothPermissionScreen';
 import { BluetoothBlockedScreen } from './screens/BluetoothBlockedScreen';
 import { LoginScreen } from './screens/LoginScreen';
+import { QRCodeScannerScreen } from './screens/QRCodeScannerScreen';
+import { CabinLobbyScreen } from './screens/CabinLobbyScreen';
 import { BluetoothConnectionScreen } from './screens/BluetoothConnectionScreen';
+import { BluetoothConnectionErrorScreen } from './screens/BluetoothConnectionErrorScreen';
 import { TeamsMainScreen } from './screens/TeamsMainScreen';
 import { CreateTeamScreen } from './screens/CreateTeamScreen';
 import { BrowseTeamsScreen } from './screens/BrowseTeamsScreen';
@@ -24,8 +27,11 @@ import { Platform, View, Text } from 'react-native';
 export type RootStackParamList = {
   BluetoothPermission: undefined;
   BluetoothBlocked: undefined;
+  QRCodeScanner: undefined;
   Login: undefined;
+  CabinLobby: undefined;
   BluetoothConnection: undefined;
+  BluetoothConnectionError: { error: string; bluetoothDeviceName?: string };
   TeamsMain: undefined;
   CreateTeam: undefined;
   BrowseTeams: undefined;
@@ -39,8 +45,11 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 type BluetoothPermissionScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothPermission'>;
 type BluetoothBlockedScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothBlocked'>;
+type QRCodeScannerScreenProps = NativeStackScreenProps<RootStackParamList, 'QRCodeScanner'>;
 type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
+type CabinLobbyScreenProps = NativeStackScreenProps<RootStackParamList, 'CabinLobby'>;
 type BluetoothScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothConnection'>;
+type BluetoothErrorScreenProps = NativeStackScreenProps<RootStackParamList, 'BluetoothConnectionError'>;
 type TeamsMainScreenProps = NativeStackScreenProps<RootStackParamList, 'TeamsMain'>;
 type CreateTeamScreenProps = NativeStackScreenProps<RootStackParamList, 'CreateTeam'>;
 type BrowseTeamsScreenProps = NativeStackScreenProps<RootStackParamList, 'BrowseTeams'>;
@@ -88,7 +97,7 @@ export default function App() {
 
       console.log('[App] Todas as permissões concedidas?', allGranted);
       setHasBluetoothPermission(allGranted);
-      setInitialRoute(allGranted ? 'Login' : 'BluetoothPermission');
+      setInitialRoute(allGranted ? 'QRCodeScanner' : 'BluetoothPermission');
       setIsCheckingPermissions(false);
     } catch (error) {
       console.error('[App] Erro ao verificar permissões', error);
@@ -126,7 +135,7 @@ export default function App() {
                 <BluetoothPermissionScreen
                   onPermissionGranted={() => {
                     setHasBluetoothPermission(true);
-                    props.navigation.replace('Login');
+                    props.navigation.replace('QRCodeScanner');
                   }}
                   onPermissionDenied={() => {
                     props.navigation.replace('BluetoothBlocked');
@@ -140,7 +149,18 @@ export default function App() {
                 <BluetoothBlockedScreen
                   onPermissionGranted={() => {
                     setHasBluetoothPermission(true);
-                    props.navigation.replace('Login');
+                    props.navigation.replace('QRCodeScanner');
+                  }}
+                />
+              )}
+            </Stack.Screen>
+
+            <Stack.Screen name="QRCodeScanner">
+              {(props: QRCodeScannerScreenProps) => (
+                <QRCodeScannerScreen
+                  onQRCodeScanned={(data) => {
+                    console.log('[App] QR Code escaneado:', data);
+                    props.navigation.navigate('Login');
                   }}
                 />
               )}
@@ -152,7 +172,28 @@ export default function App() {
                   {...props}
                   onLoginSuccess={() => {
                     setIsAuthenticated(true);
-                    props.navigation.navigate('BluetoothConnection');
+                    props.navigation.navigate('CabinLobby');
+                  }}
+                />
+              )}
+            </Stack.Screen>
+
+            <Stack.Screen name="CabinLobby">
+              {(props: CabinLobbyScreenProps) => (
+                <CabinLobbyScreen
+                  onRoleAssigned={(role, data) => {
+                    console.log('[App] Role atribuído:', role);
+                    if (role === 'leader') {
+                      props.navigation.navigate('TeamsMain');
+                    } else {
+                      // Participante vai direto para Lobby
+                      props.navigation.navigate('Lobby');
+                    }
+                  }}
+                  onError={(error) => {
+                    console.error('[App] Erro no CabinLobby:', error);
+                    // Voltar para QR Scanner em caso de erro
+                    props.navigation.navigate('QRCodeScanner');
                   }}
                 />
               )}
@@ -169,6 +210,27 @@ export default function App() {
                   onSkip={() => {
                     setIsBluetoothConnected(true);
                     props.navigation.navigate('TeamsMain');
+                  }}
+                />
+              )}
+            </Stack.Screen>
+
+            <Stack.Screen name="BluetoothConnectionError">
+              {(props: BluetoothErrorScreenProps) => (
+                <BluetoothConnectionErrorScreen
+                  error={props.route.params?.error || 'Erro desconhecido'}
+                  bluetoothDeviceName={props.route.params?.bluetoothDeviceName}
+                  onTryAgain={() => {
+                    props.navigation.navigate('QRCodeScanner');
+                  }}
+                  onUseMockMode={() => {
+                    // Ativar modo mock no BluetoothService e ir direto para o jogo
+                    const { bluetoothService } = require('../services/BluetoothService');
+                    bluetoothService.enableMockMode();
+                    props.navigation.navigate('Quiz');
+                  }}
+                  onBackToLobby={() => {
+                    props.navigation.navigate('Lobby');
                   }}
                 />
               )}

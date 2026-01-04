@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, Dispatch, SetStateAction } from 'react';
+import { CabinRole, CabinStatus, CabinParticipant } from '../types/cabin';
 
 export type GameState =
   | 'idle'
@@ -48,6 +49,22 @@ interface GameContextType {
   timeRemaining: number; // in seconds
   allWrong: boolean;
 
+  // Cabin Room System
+  cabinRole: CabinRole;
+  setCabinRole: (role: CabinRole) => void;
+  
+  bluetoothDeviceName: string | null;
+  setBluetoothDeviceName: (name: string | null) => void;
+  
+  playersInCabin: CabinParticipant[];
+  setPlayersInCabin: (players: CabinParticipant[]) => void;
+  
+  cabinStatus: CabinStatus;
+  setCabinStatus: (status: CabinStatus) => void;
+  
+  isMockMode: boolean;
+  setIsMockMode: (enabled: boolean) => void;
+
   setGameState: (state: GameState) => void;
   setGameResult: (result: GameResult) => void;
   setTeam: (team: Team | null) => void;
@@ -79,6 +96,14 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [timeRemaining, setTimeRemaining] = useState(600); // 10 minutes
   const [allWrong, setAllWrong] = useState(false);
 
+  // Cabin Room System states
+  const [cabinRole, setCabinRole] = useState<CabinRole>(null);
+  const [bluetoothDeviceName, setBluetoothDeviceName] = useState<string | null>(null);
+  const [playersInCabin, setPlayersInCabin] = useState<CabinParticipant[]>([]);
+  const [cabinStatus, setCabinStatus] = useState<CabinStatus>('empty');
+  // 🧪 Mock mode ativo por padrão para desenvolvimento
+  const [isMockMode, setIsMockMode] = useState(true);
+
   const addAnswer = (answer: GameAnswer) => {
     setAnswers((prev) => [...prev, answer]);
   };
@@ -93,6 +118,12 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setScore(0);
     setTimeRemaining(600);
     setAllWrong(false);
+    
+    // Reset cabin states (but keep cabineId, bluetoothDeviceName for reconnection)
+    setCabinRole(null);
+    setPlayersInCabin([]);
+    setCabinStatus('empty');
+    // isMockMode persiste entre jogos
   };
 
   return (
@@ -110,6 +141,18 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         score,
         timeRemaining,
         allWrong,
+        // Cabin Room System
+        cabinRole,
+        setCabinRole,
+        bluetoothDeviceName,
+        setBluetoothDeviceName,
+        playersInCabin,
+        setPlayersInCabin,
+        cabinStatus,
+        setCabinStatus,
+        isMockMode,
+        setIsMockMode,
+        // Methods
         setGameState,
         setGameResult,
         setTeam,

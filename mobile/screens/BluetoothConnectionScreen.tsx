@@ -94,23 +94,35 @@ export const BluetoothConnectionScreen: React.FC<BluetoothConnectionScreenProps>
   }, []);
 
   const handleScan = async () => {
+    console.log('=== INICIANDO SCAN ===');
     const ok = await ensurePermissions();
-    if (!ok) return;
+    if (!ok) {
+      console.log('Permissões negadas');
+      return;
+    }
 
     setDevices([]);
     setIsScanning(true);
     setStatusText('Escaneando dispositivos...');
 
     const stopScan = await bluetoothService.scanForDevices((device) => {
+      console.log('Dispositivo encontrado:', device.name, device.id);
       setDevices((prev) => {
         const existing = prev.find((d) => d.id === device.id);
-        if (existing) return prev;
-        return [...prev, device].sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
+        if (existing) {
+          console.log('Dispositivo já na lista:', device.id);
+          return prev;
+        }
+        console.log('Adicionando dispositivo à lista:', device.name);
+        const newList = [...prev, device].sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
+        console.log('Total de dispositivos na lista:', newList.length);
+        return newList;
       });
     });
 
     // Auto stop after 10 seconds
     setTimeout(() => {
+      console.log('Parando scan após 10 segundos');
       stopScan();
       setIsScanning(false);
       setStatusText('Scan concluído');
@@ -118,16 +130,25 @@ export const BluetoothConnectionScreen: React.FC<BluetoothConnectionScreenProps>
   };
 
   const handleConnect = async (device: Device) => {
+    console.log('=== INICIANDO CONEXÃO ===');
+    console.log('Device name:', device.name);
+    console.log('Device id:', device.id);
+    console.log('Device object:', device);
+    
     setIsConnecting(true);
     setStatusText(`Conectando a ${device.name || device.id}...`);
 
     try {
+      console.log('Chamando bluetoothService.connectToDevice...');
       await bluetoothService.connectToDevice(device);
+      console.log('Conexão estabelecida com sucesso!');
       setStatusText('Conectado com sucesso!');
       setTimeout(() => {
+        console.log('Chamando onConnected()');
         onConnected();
       }, 500);
     } catch (error) {
+      console.error('Erro ao conectar:', error);
       Alert.alert('Erro', `Falha ao conectar: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
       setStatusText('Falha na conexão');
       setIsConnecting(false);
@@ -173,11 +194,21 @@ export const BluetoothConnectionScreen: React.FC<BluetoothConnectionScreenProps>
           contentContainerStyle={styles.deviceListContent}
           renderItem={({ item }) => (
             <Pressable
-              style={styles.deviceItem}
-              onPress={() => handleConnect(item.device)}
+              style={({ pressed }) => [
+                styles.deviceItem,
+                pressed && styles.deviceItemPressed,
+                isConnecting && styles.deviceItemDisabled,
+              ]}
+              onPress={() => {
+                console.log('Device pressed:', item.name, item.id);
+                handleConnect(item.device);
+              }}
               disabled={isConnecting}
             >
-              <Text style={styles.deviceName}>{item.name}</Text>
+              <View style={styles.deviceHeader}>
+                <Text style={styles.deviceName}>{item.name}</Text>
+                {!isConnecting && <Text style={styles.tapHint}>👆 Toque para conectar</Text>}
+              </View>
               <Text style={styles.deviceMeta}>ID: {item.id}</Text>
               <Text style={styles.deviceMeta}>RSSI: {item.rssi ?? 'N/A'}</Text>
             </Pressable>
@@ -262,18 +293,40 @@ const styles = StyleSheet.create({
   },
   deviceItem: {
     backgroundColor: '#111827',
-    padding: 12,
+    padding: 16,
     borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+  },
+  deviceItemPressed: {
+    backgroundColor: '#1e293b',
+    borderColor: '#60a5fa',
+  },
+  deviceItemDisabled: {
+    opacity: 0.5,
+    borderColor: '#6b7280',
+  },
+  deviceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8,
   },
   deviceName: {
     color: '#fff',
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  tapHint: {
+    color: '#3b82f6',
+    fontSize: 12,
+    fontWeight: '500',
   },
   deviceMeta: {
     color: '#9ca3af',
     fontSize: 12,
+    marginTop: 2,
   },
   empty: {
     color: '#9ca3af',

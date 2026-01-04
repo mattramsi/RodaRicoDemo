@@ -6,7 +6,14 @@ export type WSMessage =
   | { action: 'joinTeam'; data: { id?: number; nome?: string } }
   | { action: 'iniciarPartida'; data: { timeId: number; cabineId: number } }
   | { action: 'answerPerguntas'; data: { perguntaId: number; answer: string; partidaId: number } }
-  | { action: 'finalizarPartida'; data: { id: number; result: boolean } };
+  | { action: 'finalizarPartida'; data: { id: number; result: boolean } }
+  // Cabin Room System
+  | { action: 'joinCabinRoom'; data: { cabineId: number } }
+  | { action: 'leaveCabinRoom'; data: { cabineId: number; reason?: string } }
+  | { action: 'createTeamForCabin'; data: { cabineId: number; teamName: string } }
+  | { action: 'startGameForCabin'; data: { cabineId: number } }
+  | { action: 'getCabinStatus'; data: { cabineId: number } }
+  | { action: 'ping'; data: {} };
 
 export interface WSResponse {
   success?: boolean;
@@ -32,7 +39,7 @@ export class WebSocketService {
     return delay;
   }
 
-  async connect(endpoint: 'time' | 'partida'): Promise<void> {
+  async connect(endpoint: 'time' | 'partida' | 'cabin'): Promise<void> {
     // Reset completo antes de conectar (limpa estado anterior)
     if (this.ws || this.reconnectTimeout) {
       console.log('[WebSocket] Resetando conexão anterior');

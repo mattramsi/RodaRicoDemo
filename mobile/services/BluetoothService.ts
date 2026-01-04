@@ -18,6 +18,8 @@ interface QueuedCommand {
   retries: number;
 }
 
+export type MockScenario = 'success' | 'connection_fail' | 'timeout' | 'device_not_found';
+
 export class BluetoothService {
   private manager: BleManager | null = null;
   private connectedDevice: Device | null = null;
@@ -25,6 +27,7 @@ export class BluetoothService {
   private commandQueue: QueuedCommand[] = [];
   private isProcessingQueue = false;
   private isMockMode = false;
+  private mockScenario: MockScenario = 'success';
   private negotiatedMtu: number | null = null;
   private connectionListeners: Set<(connected: boolean) => void> = new Set();
 
@@ -37,6 +40,9 @@ export class BluetoothService {
   constructor() {
     this.manager = new BleManager();
     this.setupListeners();
+    
+    // 🧪 Ativar mock mode por padrão para desenvolvimento
+    this.enableMockMode('success');
   }
 
   private setupListeners(): void {
@@ -50,18 +56,32 @@ export class BluetoothService {
     });
   }
 
-  enableMockMode(): void {
+  enableMockMode(scenario: MockScenario = 'success'): void {
     this.isMockMode = true;
-    this.notifyConnectionListeners(true);
+    this.mockScenario = scenario;
+    if (scenario === 'success') {
+      this.notifyConnectionListeners(true);
+    }
+    console.log(`[BluetoothService] Mock mode enabled with scenario: ${scenario}`);
   }
 
   disableMockMode(): void {
     this.isMockMode = false;
+    this.mockScenario = 'success';
     this.notifyConnectionListeners(false);
   }
 
   isMockModeEnabled(): boolean {
     return this.isMockMode;
+  }
+
+  setMockScenario(scenario: MockScenario): void {
+    this.mockScenario = scenario;
+    console.log(`[BluetoothService] Mock scenario changed to: ${scenario}`);
+  }
+
+  getMockScenario(): MockScenario {
+    return this.mockScenario;
   }
 
   isConnected(): boolean {
@@ -114,46 +134,152 @@ export class BluetoothService {
 
     return () => {
       this.manager?.stopDeviceScan();
-      // Verificar se subscription existe e tem método remove antes de chamar
-      if (subscription && typeof subscription.remove === 'function') {
-        subscription.remove();
-      }
     };
   }
 
-  async connectToDevice(device: Device): Promise<void> {
+  /**
+   * Procura por um dispositivo Bluetooth específico pelo nome
+   * @param deviceName - Nome do dispositivo (ex: "ESP32_BOMB_05")
+   * @param timeoutMs - Timeout em milissegundos (padrão: 10000)
+   * @returns Device encontrado ou erro
+   */
+  async findDeviceByName(deviceName: string, timeoutMs: number = 10000): Promise<Device> {
+    console.log(`[BluetoothService] Procurando dispositivo: ${deviceName}`);
+    
+    // Mock mode
+    if (this.isMockMode) {
+      return this.mockFindDevice(deviceName, timeoutMs);
+    }
+
     if (!this.manager) {
       throw new Error('Bluetooth manager not initialized');
     }
 
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.manager?.stopDeviceScan();
+        reject(new Error(`Dispositivo "${deviceName}" não encontrado após ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      let found = false;
+
+      this.manager!.startDeviceScan(
+        this.TARGET_SERVICE_UUID ? [this.TARGET_SERVICE_UUID] : null,
+        { allowDuplicates: false },
+        (error, device) => {
+          if (error) {
+            clearTimeout(timeout);
+            this.manager?.stopDeviceScan();
+            reject(error);
+            return;
+          }
+
+          if (!device || found) return;
+
+          const name = device.name || device.localName;
+          console.log(`[BluetoothService] Dispositivo encontrado: ${name}`);
+
+          // Comparação case-insensitive
+          if (name && name.toLowerCase() === deviceName.toLowerCase() && device) {
+            found = true;
+            clearTimeout(timeout);
+            this.manager?.stopDeviceScan();
+            console.log(`[BluetoothService] ✅ Dispositivo "${deviceName}" encontrado!`);
+            resolve(device);
+          }
+        }
+      );
+    });
+  }
+
+  /**
+   * Mock: Simula busca de dispositivo
+   */
+  private async mockFindDevice(deviceName: string, timeoutMs: number): Promise<Device> {
+    console.log(`[BluetoothService MOCK] Procurando ${deviceName}...`);
+    
+    // Simular delay de busca
+    await this.sleep(Math.min(timeoutMs / 2, 2000));
+
+    // Simular cenários
+    if (this.mockScenario === 'device_not_found') {
+      throw new Error(`[MOCK] Dispositivo "${deviceName}" não encontrado`);
+    }
+
+    if (this.mockScenario === 'timeout') {
+      await this.sleep(timeoutMs + 1000);
+      throw new Error(`[MOCK] Timeout ao procurar dispositivo`);
+    }
+
+    // Sucesso: retornar mock device
+    console.log(`[BluetoothService MOCK] ✅ Dispositivo encontrado`);
+    return {
+      id: 'mock-device-id',
+      name: deviceName,
+      localName: deviceName,
+    } as Device;
+  }
+
+  async connectToDevice(device: Device): Promise<void> {
+    console.log('BluetoothService.connectToDevice chamado');
+    console.log('Device ID:', device.id);
+    console.log('Device Name:', device.name);
+    
+    // Mock mode
+    if (this.isMockMode) {
+      return this.mockConnect(device);
+    }
+    
+    if (!this.manager) {
+      console.error('Bluetooth manager not initialized');
+      throw new Error('Bluetooth manager not initialized');
+    }
+
+    if (!device || !device.id) {
+      console.error('Invalid device object:', device);
+      throw new Error('Dispositivo inválido');
+    }
+
     try {
+      console.log('Parando scan...');
       this.manager.stopDeviceScan();
+      
+      console.log('Conectando ao dispositivo:', device.id);
       const connected = await this.manager.connectToDevice(device.id, {
         autoConnect: false,
       });
+      console.log('Dispositivo conectado, descobrindo serviços...');
 
       const discovered = await connected.discoverAllServicesAndCharacteristics();
+      console.log('Serviços descobertos');
       await this.sleep(200);
 
       if (Platform.OS === 'android') {
         try {
+          console.log('Negociando MTU...');
           const afterMtu = await discovered.requestMTU(this.PREFERRED_MTU);
           this.negotiatedMtu = afterMtu.mtu ?? null;
+          console.log('MTU negociado:', this.negotiatedMtu);
         } catch (e) {
           console.warn('MTU negotiation failed', e);
         }
       }
 
+      console.log('Procurando característica gravável...');
       const writable = await this.pickWritableCharacteristic(discovered.id);
 
       if (!writable) {
-        throw new Error('No writable characteristic found');
+        console.error('No writable characteristic found');
+        throw new Error('Nenhuma característica gravável encontrada');
       }
 
+      console.log('Característica gravável encontrada:', writable.uuid);
       this.connectedDevice = discovered;
       this.writableCharacteristic = writable;
+      console.log('Conexão estabelecida com sucesso!');
       this.notifyConnectionListeners(true);
     } catch (error) {
+      console.error('Erro durante conexão:', error);
       this.connectedDevice = null;
       this.writableCharacteristic = undefined;
       this.notifyConnectionListeners(false);
@@ -161,7 +287,42 @@ export class BluetoothService {
     }
   }
 
+  /**
+   * Mock: Simula conexão com dispositivo
+   */
+  private async mockConnect(device: Device): Promise<void> {
+    console.log(`[BluetoothService MOCK] Conectando a ${device.name}...`);
+    
+    // Simular delay de conexão
+    await this.sleep(1500);
+
+    // Simular cenários de erro
+    if (this.mockScenario === 'connection_fail') {
+      throw new Error('[MOCK] Falha ao conectar ao dispositivo');
+    }
+
+    if (this.mockScenario === 'timeout') {
+      await this.sleep(15000);
+      throw new Error('[MOCK] Timeout ao conectar');
+    }
+
+    // Sucesso
+    console.log('[BluetoothService MOCK] ✅ Conectado com sucesso');
+    this.connectedDevice = device;
+    this.writableCharacteristic = { uuid: 'mock-char' } as Characteristic;
+    this.notifyConnectionListeners(true);
+  }
+
   async disconnect(): Promise<void> {
+    if (this.isMockMode) {
+      console.log('[BluetoothService MOCK] Desconectando...');
+      this.connectedDevice = null;
+      this.writableCharacteristic = undefined;
+      this.commandQueue = [];
+      this.notifyConnectionListeners(false);
+      return;
+    }
+
     if (this.connectedDevice && this.manager) {
       try {
         await this.manager.cancelDeviceConnection(this.connectedDevice.id);
