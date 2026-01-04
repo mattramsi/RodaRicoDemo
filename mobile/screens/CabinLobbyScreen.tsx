@@ -94,6 +94,10 @@ export const CabinLobbyScreen: React.FC<CabinLobbyScreenProps> = ({
         setCabinRole('leader');
         setPlayersInCabin(mockData.playersInRoom);
         setCabinStatus('empty');
+        
+        // Criar time automaticamente para o líder em modo mock
+        setTeam({ id: 1, nome: 'Time Líder Mock' });
+        console.log('[CabinLobby] Mock: Time criado automaticamente para líder');
 
         onRoleAssigned('leader', mockData);
       } else {

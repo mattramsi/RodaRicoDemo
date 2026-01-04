@@ -31,18 +31,13 @@ export const QRCodeScannerScreen: React.FC<QRCodeScannerScreenProps> = ({
 
   const checkCameraAvailability = async () => {
     try {
-      // Tentar importar a câmera dinamicamente
-      // TODO: Instalar expo-camera: npx expo install expo-camera
-      // const { Camera } = require('expo-camera');
-      // const { status } = await Camera.requestCameraPermissionsAsync();
-      // setHasPermission(status === 'granted');
-      // setCameraAvailable(true);
-
-      // Por enquanto, sem câmera instalada
-      setCameraAvailable(false);
-      console.log('[QRCodeScanner] Câmera não disponível. Use modo mock para testes.');
+      const Camera = require('expo-camera').Camera;
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
+      setCameraAvailable(true);
+      console.log('[QRCodeScanner] Câmera disponível, permissão:', status);
     } catch (error) {
-      console.log('[QRCodeScanner] expo-camera não instalado');
+      console.log('[QRCodeScanner] expo-camera não instalado:', error);
       setCameraAvailable(false);
     }
   };
@@ -205,16 +200,26 @@ export const QRCodeScannerScreen: React.FC<QRCodeScannerScreenProps> = ({
   }
 
   // Se câmera disponível e com permissão
-  // TODO: Implementar quando expo-camera estiver instalado
+  const { CameraView } = require('expo-camera');
+
   return (
     <View style={styles.container}>
-      <View style={styles.cameraPlaceholder}>
-        <Text style={styles.cameraPlaceholderText}>
-          [CÂMERA AQUI]
-        </Text>
-        <Text style={styles.subtitle}>
-          Instale expo-camera para usar
-        </Text>
+      <View style={styles.cameraContainer}>
+        <CameraView
+          style={styles.camera}
+          facing="back"
+          onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+          barcodeScannerSettings={{
+            barcodeTypes: ['qr'],
+          }}
+        >
+          <View style={styles.overlay}>
+            <View style={styles.scanFrame} />
+            <Text style={styles.instructionText}>
+              Aponte para o QR Code da cabine
+            </Text>
+          </View>
+        </CameraView>
       </View>
 
       {scanned && (
@@ -323,6 +328,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  cameraContainer: {
+    width: '100%',
+    height: '70%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  camera: {
+    flex: 1,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanFrame: {
+    width: 250,
+    height: 250,
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  instructionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 24,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   cameraPlaceholder: {
     width: 300,

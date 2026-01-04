@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { AuthService } from '../services/AuthService';
+import { useGame } from '../context/GameContext';
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
@@ -17,6 +18,7 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [nickname, setNickname] = useState('');
   const [loading, setLoading] = useState(false);
+  const game = useGame();
 
   const handleLogin = async () => {
     if (!nickname.trim()) {
@@ -26,7 +28,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
     setLoading(true);
     try {
-      await AuthService.login(nickname);
+      // Se estiver em modo mock, fazer login fake
+      if (game.isMockMode) {
+        console.log('[LoginScreen] Modo Mock ativo - fazendo login mockado');
+        // Salvar tokens mockados
+        await AuthService.storeTokens({
+          access_token: 'mock_access_token_' + Date.now(),
+          refresh_token: 'mock_refresh_token_' + Date.now(),
+          expires_in: 3600,
+        });
+        // Pequeno delay para simular chamada de rede
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } else {
+        // Login real via API
+        await AuthService.login(nickname);
+      }
       onLoginSuccess();
     } catch (error) {
       Alert.alert('Erro', `Falha no login: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
@@ -37,6 +53,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   return (
     <View style={styles.container}>
+      {game.isMockMode && (
+        <View style={styles.mockBadge}>
+          <Text style={styles.mockBadgeText}>🧪 MODO MOCK ATIVO</Text>
+        </View>
+      )}
+
       <Text style={styles.title}>RodaRico</Text>
       <Text style={styles.subtitle}>Jogo de Desarme de Bomba</Text>
 
@@ -72,6 +94,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
+  },
+  mockBadge: {
+    position: 'absolute',
+    top: 60,
+    backgroundColor: '#8b5cf6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 10,
+  },
+  mockBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   title: {
     color: '#fff',

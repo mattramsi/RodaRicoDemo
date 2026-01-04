@@ -10,6 +10,8 @@ import {
 import { wsService } from '../services/WebSocketService';
 import { bluetoothService } from '../services/BluetoothService';
 import { useGame } from '../context/GameContext';
+import { BluetoothToast } from '../components/BluetoothToast';
+import type { BluetoothNotification } from '../types/bluetooth';
 
 interface ResultScreenProps {
   onPlayAgain: () => void;
@@ -20,9 +22,14 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   onPlayAgain,
   onBackToLobby,
 }) => {
-  const { partidaId, score, gameResult, setGameState, team } = useGame();
+  const { partidaId, score, gameResult, setGameState, team, isMockMode } = useGame();
   const [disarming, setDisarming] = useState(false);
   const finalizarListenerRef = useRef<(() => void) | null>(null);
+  
+  // Estados para Toast de notificações Bluetooth
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'warning' | 'error' | 'info'>('info');
 
   // Log para debug
   useEffect(() => {
@@ -56,7 +63,55 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
     }
 
     try {
-      // 1. Bluetooth DESARMAR
+      // MODO MOCK: Processar localmente com listener de notificação
+      if (isMockMode) {
+        console.log('[ResultScreen] Modo Mock - Desarmando bomba localmente');
+        
+        // 1. Configurar listener para BOMBA_DESARMADA
+        const unsubscribe = bluetoothService.onNotification(
+          'BOMBA_DESARMADA',
+          (notification) => {
+            if (notification.type === 'BOMBA_DESARMADA') {
+              console.log('[ResultScreen] Mock: ✅ Confirmação de desarme recebida!');
+              const { tempoFinal } = notification.data;
+              
+              // Mostrar toast de sucesso
+              setToastMessage(`✅ Bomba Desarmada! Tempo restante: ${Math.floor(tempoFinal / 60)}:${String(tempoFinal % 60).padStart(2, '0')}`);
+              setToastType('success');
+              setToastVisible(true);
+              
+              // Cleanup
+              unsubscribe();
+              setDisarming(false);
+              setGameState('finished');
+              
+              // Navegar para PlayAgain
+              setTimeout(() => {
+                onPlayAgain();
+              }, 2000);
+            }
+          }
+        );
+        
+        // 2. Enviar comando DESARMAR (que acionará a notificação mock automaticamente)
+        await bluetoothService.sendCommand('DESARMAR');
+        console.log('[ResultScreen] Mock: Comando DESARMAR enviado via Bluetooth');
+        
+        // 3. Timeout de segurança
+        setTimeout(() => {
+          if (disarming) {
+            console.warn('[ResultScreen] Mock: Timeout aguardando confirmação de desarme');
+            unsubscribe();
+            setDisarming(false);
+            setGameState('finished');
+            onPlayAgain();
+          }
+        }, 5000);
+        
+        return; // Sair da função, não processar WebSocket
+      }
+
+      // MODO REAL: 1. Bluetooth DESARMAR
       await bluetoothService.sendCommand('DESARMAR');
 
       // 2. Listener para resposta de finalizarPartida
@@ -183,9 +238,8 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         <Pressable 
           style={styles.secondaryButton} 
           onPress={() => {
-            // Reset WebSocket ao jogar novamente
-            console.log('[ResultScreen] Jogar Novamente - Resetando WebSocket');
-            wsService.reset();
+            // Reset e navegação serão feitos no App.tsx
+            console.log('[ResultScreen] Jogar Novamente clicado');
             onPlayAgain();
           }}
         >
@@ -194,15 +248,23 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         <Pressable 
           style={styles.secondaryButton} 
           onPress={() => {
-            // Reset WebSocket ao voltar ao lobby
-            console.log('[ResultScreen] Voltar ao Lobby - Resetando WebSocket');
-            wsService.reset();
+            // Reset e navegação serão feitos no App.tsx
+            console.log('[ResultScreen] Voltar ao Início clicado');
             onBackToLobby();
           }}
         >
-          <Text style={styles.secondaryButtonText}>Voltar ao Lobby</Text>
+          <Text style={styles.secondaryButtonText}>Voltar ao Início</Text>
         </Pressable>
       </View>
+      
+      {/* Toast para notificações Bluetooth */}
+      <BluetoothToast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        duration={3000}
+        onHide={() => setToastVisible(false)}
+      />
     </View>
   );
 };

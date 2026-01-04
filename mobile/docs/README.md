@@ -85,6 +85,96 @@ Roteiro completo para implementar o sistema:
 
 ---
 
+### **6. [MOCK_QUESTIONS.md](./MOCK_QUESTIONS.md)**
+**Sistema de Perguntas Mock**
+
+Documentação completa do sistema de perguntas para testes offline:
+- ✅ Lista completa de 8 perguntas mock
+- ✅ Sistema de respostas simuladas (70% de acerto)
+- ✅ API de ativação/desativação do modo mock
+- ✅ Fluxo completo de jogo mock
+- ✅ Estatísticas e cálculo de pontos
+- ✅ Guia para adicionar novas perguntas
+
+**Use este para testar o jogo sem backend!**
+
+---
+
+### **7. [UNUSED_SCREENS_AUDIT.md](./UNUSED_SCREENS_AUDIT.md)**
+**Auditoria de Telas Obsoletas**
+
+Análise completa de telas não utilizadas no fluxo atual:
+- ✅ Lista de 7 telas/arquivos obsoletos
+- ✅ Explicação do por quê cada uma não é mais usada
+- ✅ Plano de ação para remoção segura
+- ✅ Script automatizado de limpeza
+- ✅ Checklist completo
+- ✅ Comparação de fluxos (antigo vs novo)
+
+**Use este para limpar código legado!**
+
+---
+
+### **8. [LEADER_VS_PARTICIPANT_FLOW.md](./LEADER_VS_PARTICIPANT_FLOW.md)**
+**Fluxo Líder vs Participante**
+
+Mapeamento completo das diferenças entre os dois papéis:
+- ✅ Diagramas visuais lado a lado
+- ✅ Tabelas comparativas detalhadas
+- ✅ Passo a passo de cada fluxo
+- ✅ UI mockups (Lobby líder vs participante)
+- ✅ Código relevante explicado
+- ✅ Como testar ambos os roles em mock
+- ✅ FAQ completo
+- ✅ Mapeamento completo de comandos Bluetooth
+- ✅ 5 comandos documentados: INICIAR, ACELERAR, EXPLODIR, DESARMAR, REINICIAR
+- ✅ Fluxo detalhado de quando cada comando é enviado
+
+**Use este para entender os diferentes papéis no jogo!**
+
+---
+
+### **9. [BLUETOOTH_NOTIFICATIONS_PLAN.md](./BLUETOOTH_NOTIFICATIONS_PLAN.md)**
+**Sistema de Notificações Bluetooth Bidirecionais - Plano**
+
+Plano completo para implementar notificações do ESP32 → App:
+- ✅ 4 tipos de notificações: BOMBA_RESFRIADA, BOMBA_DESARMADA, BOMBA_EXPLODIDA, TEMPO_ATUALIZADO
+- ✅ Arquitetura de listeners e callbacks
+- ✅ Sistema bidirecionais (App ⟷ ESP32)
+- ✅ Integração com QuizScreen e ResultScreen
+- ✅ Modo mock para testes sem hardware
+- ✅ Exemplos de código ESP32 (firmware)
+- ✅ Plano de implementação em 7 fases (13-15 horas)
+- ✅ Diagramas de fluxo de notificações
+- ✅ Formato JSON de cada notificação
+- ✅ Troubleshooting e considerações técnicas
+
+**Use este para entender o plano original!**
+
+---
+
+### **10. [BLUETOOTH_NOTIFICATIONS_IMPLEMENTATION.md](./BLUETOOTH_NOTIFICATIONS_IMPLEMENTATION.md)** 🆕✅
+**Sistema de Notificações Bluetooth Bidirecionais - Implementação Completa**
+
+Documentação da implementação finalizada:
+- ✅ **Status: 100% Completo**
+- ✅ 4 notificações implementadas e testadas
+- ✅ Componente BluetoothToast com animações
+- ✅ Timer automático mock (a cada 5 segundos)
+- ✅ Auto-resposta a comandos em modo mock
+- ✅ Integração completa em QuizScreen e ResultScreen
+- ✅ BLE Notify Characteristic monitoring (modo real)
+- ✅ +563 linhas de código adicionadas
+- ✅ 0 erros de lint
+- ✅ Guia de uso e exemplos de código
+- ✅ Fluxo completo documentado com diagramas
+- ✅ API completa do BluetoothService
+- ✅ Pronto para produção (modo mock)
+
+**Use este para entender a implementação final!**
+
+---
+
 ## 🚀 Quick Start
 
 ### **Para Desenvolvedores Backend:**
@@ -149,14 +239,62 @@ Sistema que permite múltiplos jogadores escanearem o QR Code da mesma cabine f�
 | Fase | Status | Progresso |
 |------|--------|-----------|
 | 📋 Documentação | ✅ Completa | 100% |
+| 📡 Plano Notificações BLE | ✅ Completo | 100% |
+| 🔵 **Bluetooth Bidirecionais** | ✅ **Completo** | **100%** |
+| 🎨 Componente de Toast | ✅ Completo | 100% |
+| 🧪 Modo Mock Notificações | ✅ Completo | 100% |
 | 🔧 Backend Setup | ⏳ Não iniciado | 0% |
-| 📱 Frontend Setup | ⏳ Não iniciado | 0% |
-| 🧪 Testes | ⏳ Não iniciado | 0% |
+| 📱 Frontend Cabin Room | ⏳ Parcial | 60% |
 | 🚀 Deploy | ⏳ Não iniciado | 0% |
 
 ---
 
 ## 📝 Changelog
+
+### **v1.5 - 2026-01-04** (Novo) 🆕🎉
+- ✅ **✨ IMPLEMENTAÇÃO COMPLETA: Sistema de Notificações Bluetooth Bidirecionais**
+- ✅ Componente `BluetoothToast` com animações suaves
+- ✅ 4 notificações funcionando: BOMBA_RESFRIADA, BOMBA_DESARMADA, BOMBA_EXPLODIDA, TEMPO_ATUALIZADO
+- ✅ Sistema de listeners completo no `BluetoothService`
+- ✅ Timer automático mock (a cada 5 segundos)
+- ✅ Auto-resposta a comandos em modo mock
+- ✅ Integração completa em QuizScreen e ResultScreen
+- ✅ BLE Notify Characteristic monitoring (modo real)
+- ✅ +563 linhas de código adicionadas
+- ✅ 0 erros de lint
+- ✅ Documentação completa da implementação
+- ✅ **Pronto para produção (modo mock)**
+
+### **v1.4 - 2026-01-04**
+- ✅ **Plano completo: Sistema de Notificações Bluetooth Bidirecionais**
+- ✅ Arquitetura de listeners (App escuta ESP32)
+- ✅ 4 notificações: BOMBA_RESFRIADA, BOMBA_DESARMADA, BOMBA_EXPLODIDA, TEMPO_ATUALIZADO
+- ✅ Sistema bidirecionais (App ⟷ ESP32)
+- ✅ Modo mock para notificações
+- ✅ Exemplos de código ESP32
+- ✅ Plano de implementação em 7 fases (13-15h)
+- ✅ Diagramas de fluxo completos
+
+### **v1.3 - 2026-01-04**
+- ✅ Documentação completa: Líder vs Participante
+- ✅ Diagramas visuais dos dois fluxos
+- ✅ Comparação detalhada de UIs
+- ✅ Guia de testes para ambos os roles
+- ✅ Mapeamento completo de comandos Bluetooth
+- ✅ 5 comandos documentados: INICIAR, ACELERAR, EXPLODIR, DESARMAR, REINICIAR
+- ✅ Fluxo detalhado de quando cada comando é enviado
+
+### **v1.2 - 2026-01-04**
+- ✅ Auditoria completa de telas obsoletas
+- ✅ Identificadas 7 telas não utilizadas no fluxo atual
+- ✅ Script automatizado para limpeza
+- ✅ Documentação de fluxos antigo vs novo
+
+### **v1.1 - 2026-01-04**
+- ✅ Adicionado sistema de perguntas mock
+- ✅ Documentação completa de perguntas mock
+- ✅ Modo mock implementado no QuestionService
+- ✅ Suporte a testes offline completos
 
 ### **v1.0 - 2026-01-04**
 - ✅ Documentação inicial completa
@@ -212,7 +350,7 @@ Se você encontrar erros ou tiver sugestões:
 **Documentação criada por:** Cursor AI + Equipe RodaRico  
 **Data de criação:** 2026-01-04  
 **Última atualização:** 2026-01-04  
-**Versão:** 1.0  
+**Versão:** 1.5 🎉  
 
 ---
 

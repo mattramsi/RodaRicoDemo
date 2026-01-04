@@ -6,7 +6,8 @@ import { createNativeStackNavigator, NativeStackScreenProps } from '@react-navig
 // @ts-ignore - Will be available after npm install
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { GameProvider } from './context/GameContext';
+import { GameProvider, useGame } from './context/GameContext';
+import { wsService } from './services/WebSocketService';
 import { BluetoothPermissionScreen } from './screens/BluetoothPermissionScreen';
 import { BluetoothBlockedScreen } from './screens/BluetoothBlockedScreen';
 import { LoginScreen } from './screens/LoginScreen';
@@ -179,40 +180,55 @@ export default function App() {
             </Stack.Screen>
 
             <Stack.Screen name="CabinLobby">
-              {(props: CabinLobbyScreenProps) => (
-                <CabinLobbyScreen
-                  onRoleAssigned={(role, data) => {
-                    console.log('[App] Role atribuído:', role);
-                    if (role === 'leader') {
-                      props.navigation.navigate('TeamsMain');
-                    } else {
-                      // Participante vai direto para Lobby
-                      props.navigation.navigate('Lobby');
-                    }
-                  }}
-                  onError={(error) => {
-                    console.error('[App] Erro no CabinLobby:', error);
-                    // Voltar para QR Scanner em caso de erro
-                    props.navigation.navigate('QRCodeScanner');
-                  }}
-                />
-              )}
+              {(props: CabinLobbyScreenProps) => {
+                const game = useGame();
+                return (
+                  <CabinLobbyScreen
+                    onRoleAssigned={(role, data) => {
+                      console.log('[App] Role atribuído:', role);
+                      
+                      // Se estiver em modo mock, pular conexão Bluetooth
+                      if (game.isMockMode) {
+                        console.log('[App] Modo Mock - Pulando conexão Bluetooth');
+                        props.navigation.navigate('Lobby');
+                      } else {
+                        // Modo real: conectar ao Bluetooth antes de ir para Lobby
+                        console.log('[App] Modo Real - Conectando ao Bluetooth');
+                        props.navigation.navigate('BluetoothConnection');
+                      }
+                    }}
+                    onError={(error) => {
+                      console.error('[App] Erro no CabinLobby:', error);
+                      // Voltar para QR Scanner em caso de erro
+                      props.navigation.navigate('QRCodeScanner');
+                    }}
+                  />
+                );
+              }}
             </Stack.Screen>
 
             <Stack.Screen name="BluetoothConnection">
-              {(props: BluetoothScreenProps) => (
-                <BluetoothConnectionScreen
-                  {...props}
-                  onConnected={() => {
-                    setIsBluetoothConnected(true);
-                    props.navigation.navigate('TeamsMain');
-                  }}
-                  onSkip={() => {
-                    setIsBluetoothConnected(true);
-                    props.navigation.navigate('TeamsMain');
-                  }}
-                />
-              )}
+              {(props: BluetoothScreenProps) => {
+                const game = useGame();
+                return (
+                  <BluetoothConnectionScreen
+                    {...props}
+                    onConnected={() => {
+                      console.log('[App] Bluetooth conectado com sucesso');
+                      setIsBluetoothConnected(true);
+                      // Após conectar, ir para Lobby
+                      props.navigation.navigate('Lobby');
+                    }}
+                    onSkip={() => {
+                      console.log('[App] Conexão Bluetooth pulada - usando mock');
+                      setIsBluetoothConnected(true);
+                      // Se pular, ativar modo mock e ir para Lobby
+                      game.setIsMockMode(true);
+                      props.navigation.navigate('Lobby');
+                    }}
+                  />
+                );
+              }}
             </Stack.Screen>
 
             <Stack.Screen name="BluetoothConnectionError">
@@ -230,7 +246,12 @@ export default function App() {
                     props.navigation.navigate('Quiz');
                   }}
                   onBackToLobby={() => {
-                    props.navigation.navigate('Lobby');
+                    // Voltar ao início (QR Scanner)
+                    console.log('[App] Voltar ao Início - Voltando ao QR Scanner');
+                    props.navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'QRCodeScanner' }],
+                    });
                   }}
                 />
               )}
@@ -298,32 +319,87 @@ export default function App() {
             </Stack.Screen>
 
             <Stack.Screen name="Result">
-              {(props: ResultScreenProps) => (
-                <ResultScreen
-                  {...props}
-                  onPlayAgain={() => {
-                    props.navigation.navigate('PlayAgain');
-                  }}
-                  onBackToLobby={() => {
-                    props.navigation.navigate('Lobby');
-                  }}
-                />
-              )}
+              {(props: ResultScreenProps) => {
+                const game = useGame();
+                return (
+                  <ResultScreen
+                    {...props}
+                    onPlayAgain={() => {
+                      // Resetar jogo completamente antes de voltar ao QR Scanner
+                      console.log('[App] Jogar Novamente - Reset completo');
+                      game.resetGameFully();
+                      
+                      // Reset WebSocket (apenas em modo real)
+                      if (!game.isMockMode) {
+                        wsService.reset();
+                      }
+                      
+                      console.log('[App] Voltando ao QR Scanner');
+                      props.navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'QRCodeScanner' }],
+                      });
+                    }}
+                    onBackToLobby={() => {
+                      // Voltar ao início (QR Scanner)
+                      console.log('[App] Voltar ao Início - Reset completo');
+                      game.resetGameFully();
+                      
+                      if (!game.isMockMode) {
+                        wsService.reset();
+                      }
+                      
+                      console.log('[App] Voltando ao QR Scanner');
+                      props.navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'QRCodeScanner' }],
+                      });
+                    }}
+                  />
+                );
+              }}
             </Stack.Screen>
 
             <Stack.Screen name="PlayAgain">
-              {(props: PlayAgainScreenProps) => (
-                <PlayAgainScreen
-                  {...props}
-                  onPlayAgain={() => {
-                    // Voltar ao lobby para iniciar nova partida com mesmo time/cabine
-                    props.navigation.navigate('Lobby');
-                  }}
-                  onBackToLobby={() => {
-                    props.navigation.navigate('Lobby');
-                  }}
-                />
-              )}
+              {(props: PlayAgainScreenProps) => {
+                const game = useGame();
+                return (
+                  <PlayAgainScreen
+                    {...props}
+                    onPlayAgain={() => {
+                      // Resetar jogo completamente antes de voltar ao QR Scanner
+                      console.log('[App] Jogar Novamente - Reset completo');
+                      game.resetGameFully();
+                      
+                      // Reset WebSocket (apenas em modo real)
+                      if (!game.isMockMode) {
+                        wsService.reset();
+                      }
+                      
+                      console.log('[App] Voltando ao QR Scanner');
+                      props.navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'QRCodeScanner' }],
+                      });
+                    }}
+                    onBackToLobby={() => {
+                      // Voltar ao início (QR Scanner)
+                      console.log('[App] Voltar ao Início - Reset completo');
+                      game.resetGameFully();
+                      
+                      if (!game.isMockMode) {
+                        wsService.reset();
+                      }
+                      
+                      console.log('[App] Voltar ao Início - Voltando ao QR Scanner');
+                      props.navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'QRCodeScanner' }],
+                      });
+                    }}
+                  />
+                );
+              }}
             </Stack.Screen>
           </Stack.Navigator>
         </NavigationContainer>

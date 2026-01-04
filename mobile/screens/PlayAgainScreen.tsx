@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { bluetoothService } from '../services/BluetoothService';
-import { wsService } from '../services/WebSocketService';
 import { useGame } from '../context/GameContext';
 
 interface PlayAgainScreenProps {
@@ -19,35 +18,24 @@ export const PlayAgainScreen: React.FC<PlayAgainScreenProps> = ({
   onPlayAgain,
   onBackToLobby,
 }) => {
-  const { resetGame } = useGame();
   const [loading, setLoading] = useState(false);
 
   const handlePlayAgain = async () => {
     setLoading(true);
     try {
-      console.log('[PlayAgain] Iniciando nova partida...');
+      console.log('[PlayAgain] Iniciando nova partida');
       
-      // 1. Enviar REINICIAR via Bluetooth
+      // 1. Enviar REINICIAR via Bluetooth (mock ou real)
       await bluetoothService.sendCommand('REINICIAR');
       console.log('[PlayAgain] Comando REINICIAR enviado');
 
-      // 2. Reset WebSocket (importante para limpar conexão de partida anterior)
-      wsService.reset();
-      console.log('[PlayAgain] WebSocket resetado');
-
-      // 3. Reset game state (mantém team e cabineId)
-      resetGame();
-      console.log('[PlayAgain] Estado do jogo resetado');
-
       setLoading(false);
       
-      // 4. Voltar ao lobby para iniciar nova partida
+      // 2. Reset e navegação serão feitos no App.tsx
       onPlayAgain();
     } catch (error) {
       console.error('[PlayAgain] Erro ao reiniciar:', error);
-      // Continue anyway - reset mesmo com erro no bluetooth
-      wsService.reset();
-      resetGame();
+      // Continue anyway - reset será feito no App.tsx
       setLoading(false);
       onPlayAgain();
     }
@@ -73,13 +61,13 @@ export const PlayAgainScreen: React.FC<PlayAgainScreenProps> = ({
         <Pressable
           style={styles.secondaryButton}
           onPress={() => {
-            // Reset WebSocket ao voltar ao lobby
-            wsService.reset();
+            // Reset e navegação serão feitos no App.tsx
+            console.log('[PlayAgain] Voltar ao Início clicado');
             onBackToLobby();
           }}
           disabled={loading}
         >
-          <Text style={styles.secondaryButtonText}>Voltar ao Lobby</Text>
+          <Text style={styles.secondaryButtonText}>Voltar ao Início</Text>
         </Pressable>
       </View>
     </View>

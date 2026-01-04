@@ -1,6 +1,10 @@
-import { BleManager, Characteristic, Device } from 'react-native-ble-plx';
+import { BleManager, Characteristic, Device, Subscription } from 'react-native-ble-plx';
 import { Platform } from 'react-native';
-import { encode as base64Encode } from 'base-64';
+import { encode as base64Encode, decode as base64Decode } from 'base-64';
+import type { 
+  BluetoothNotification, 
+  BluetoothNotificationType 
+} from '../types/bluetooth';
 
 export type BluetoothCommand = 'INICIAR' | 'DESARMAR' | 'ACELERAR' | 'EXPLODIR' | 'REINICIAR';
 
@@ -24,17 +28,30 @@ export class BluetoothService {
   private manager: BleManager | null = null;
   private connectedDevice: Device | null = null;
   private writableCharacteristic: Characteristic | undefined = undefined;
+  private notifyCharacteristic: Characteristic | undefined = undefined;
+  private notifySubscription: Subscription | null = null;
   private commandQueue: QueuedCommand[] = [];
   private isProcessingQueue = false;
   private isMockMode = false;
   private mockScenario: MockScenario = 'success';
   private negotiatedMtu: number | null = null;
   private connectionListeners: Set<(connected: boolean) => void> = new Set();
+  
+  // Sistema de listeners para notificações Bluetooth
+  private notificationListeners: Map<
+    BluetoothNotificationType | '*',
+    Set<(notification: BluetoothNotification) => void>
+  > = new Map();
+  
+  // Timer para simular TEMPO_ATUALIZADO em modo mock
+  private mockTimerInterval: NodeJS.Timeout | null = null;
+  private mockSecondsRemaining: number = 600; // 10 minutos
 
   private readonly MAX_RETRIES = 3;
   private readonly COMMAND_TIMEOUT = 5000;
   private readonly TARGET_SERVICE_UUID: string | undefined = undefined;
   private readonly TARGET_WRITE_CHAR_UUID: string | undefined = undefined;
+  private readonly TARGET_NOTIFY_CHAR_UUID: string | undefined = undefined;
   private readonly PREFERRED_MTU = 185;
 
   constructor() {
@@ -97,6 +114,246 @@ export class BluetoothService {
 
   private notifyConnectionListeners(connected: boolean): void {
     this.connectionListeners.forEach((cb) => cb(connected));
+  }
+
+  /**
+   * Subscrever para notificações Bluetooth de um tipo específico ou todos (*)
+   * @param type - Tipo de notificação ou '*' para todas
+   * @param callback - Função chamada quando notificação é recebida
+   * @returns Função de cleanup para remover o listener
+   */
+  onNotification(
+    type: BluetoothNotificationType | '*',
+    callback: (notification: BluetoothNotification) => void
+  ): () => void {
+    if (!this.notificationListeners.has(type)) {
+      this.notificationListeners.set(type, new Set());
+    }
+    
+    this.notificationListeners.get(type)!.add(callback);
+    console.log(`[BluetoothService] Listener adicionado para: ${type}`);
+    
+    // Retorna função de cleanup
+    return () => {
+      this.notificationListeners.get(type)?.delete(callback);
+      console.log(`[BluetoothService] Listener removido para: ${type}`);
+    };
+  }
+
+  /**
+   * Processar notificação recebida do ESP32 ou simulada (mock)
+   */
+  private handleNotification(notification: BluetoothNotification): void {
+    console.log('[BluetoothService] Notificação recebida:', notification);
+
+    // Notificar listeners específicos do tipo
+    const typeListeners = this.notificationListeners.get(notification.type);
+    if (typeListeners) {
+      typeListeners.forEach(callback => {
+        try {
+          callback(notification);
+        } catch (error) {
+          console.error(`[BluetoothService] Erro ao chamar listener de ${notification.type}:`, error);
+        }
+      });
+    }
+
+    // Notificar listeners genéricos (*)
+    const allListeners = this.notificationListeners.get('*');
+    if (allListeners) {
+      allListeners.forEach(callback => {
+        try {
+          callback(notification);
+        } catch (error) {
+          console.error('[BluetoothService] Erro ao chamar listener genérico:', error);
+        }
+      });
+    }
+  }
+
+  /**
+   * MODO MOCK: Simular notificação manualmente
+   */
+  simulateNotification(notification: BluetoothNotification): void {
+    if (!this.isMockMode) {
+      console.warn('[BluetoothService] simulateNotification só funciona em modo mock');
+      return;
+    }
+
+    console.log('[BluetoothService Mock] Simulando notificação:', notification);
+    this.handleNotification(notification);
+  }
+
+  /**
+   * MODO MOCK: Auto-simular notificações baseadas em comandos enviados
+   */
+  private mockAutoNotify(command: BluetoothCommand): void {
+    if (!this.isMockMode) return;
+
+    setTimeout(() => {
+      const now = Date.now();
+      
+      switch (command) {
+        case 'INICIAR':
+          // Após INICIAR, enviar timer inicial e começar contagem
+          this.mockSecondsRemaining = 600; // 10 minutos
+          this.simulateNotification({
+            type: 'TEMPO_ATUALIZADO',
+            timestamp: now,
+            data: { segundosRestantes: this.mockSecondsRemaining }
+          });
+          this.startMockTimer();
+          break;
+
+        case 'ACELERAR':
+          // Reduzir tempo em 30 segundos
+          this.mockSecondsRemaining = Math.max(0, this.mockSecondsRemaining - 30);
+          this.simulateNotification({
+            type: 'TEMPO_ATUALIZADO',
+            timestamp: now,
+            data: { segundosRestantes: this.mockSecondsRemaining }
+          });
+          break;
+
+        case 'DESARMAR':
+          // Confirmar desarme
+          this.stopMockTimer();
+          this.simulateNotification({
+            type: 'BOMBA_DESARMADA',
+            timestamp: now,
+            data: { tempoFinal: this.mockSecondsRemaining }
+          });
+          break;
+
+        case 'EXPLODIR':
+          // Confirmar explosão
+          this.stopMockTimer();
+          this.simulateNotification({
+            type: 'BOMBA_EXPLODIDA',
+            timestamp: now,
+            data: { motivo: 'manual' }
+          });
+          break;
+
+        case 'REINICIAR':
+          // Resetar timer
+          this.stopMockTimer();
+          this.mockSecondsRemaining = 600;
+          break;
+      }
+    }, 300); // Simula latência de 300ms
+  }
+
+  /**
+   * MODO MOCK: Iniciar timer automático que envia TEMPO_ATUALIZADO a cada 5 segundos
+   */
+  private startMockTimer(): void {
+    this.stopMockTimer();
+    
+    this.mockTimerInterval = setInterval(() => {
+      if (this.mockSecondsRemaining > 0) {
+        this.mockSecondsRemaining -= 5;
+        
+        // Enviar atualização
+        this.simulateNotification({
+          type: 'TEMPO_ATUALIZADO',
+          timestamp: Date.now(),
+          data: { segundosRestantes: Math.max(0, this.mockSecondsRemaining) }
+        });
+
+        // Se chegou a 0, explodir automaticamente
+        if (this.mockSecondsRemaining <= 0) {
+          this.stopMockTimer();
+          setTimeout(() => {
+            this.simulateNotification({
+              type: 'BOMBA_EXPLODIDA',
+              timestamp: Date.now(),
+              data: { motivo: 'timeout' }
+            });
+          }, 500);
+        }
+      }
+    }, 5000); // A cada 5 segundos
+    
+    console.log('[BluetoothService Mock] Timer automático iniciado');
+  }
+
+  /**
+   * MODO MOCK: Parar timer automático
+   */
+  private stopMockTimer(): void {
+    if (this.mockTimerInterval) {
+      clearInterval(this.mockTimerInterval);
+      this.mockTimerInterval = null;
+      console.log('[BluetoothService Mock] Timer automático parado');
+    }
+  }
+
+  /**
+   * Configurar monitoramento de notificações BLE (modo real)
+   */
+  private async setupNotifications(): Promise<void> {
+    if (!this.connectedDevice || !this.manager) {
+      console.warn('[BluetoothService] Não é possível configurar notificações: device/manager não disponível');
+      return;
+    }
+
+    try {
+      console.log('[BluetoothService] Configurando notificações BLE...');
+      
+      // Descobrir serviços e características
+      await this.connectedDevice.discoverAllServicesAndCharacteristics();
+      
+      // Encontrar característica de notificação
+      const services = await this.connectedDevice.services();
+      
+      for (const service of services) {
+        const characteristics = await service.characteristics();
+        
+        for (const char of characteristics) {
+          // Procurar característica com propriedade "notify"
+          if (char.isNotifiable) {
+            this.notifyCharacteristic = char;
+            console.log('[BluetoothService] Característica de notificação encontrada:', char.uuid);
+            break;
+          }
+        }
+        
+        if (this.notifyCharacteristic) break;
+      }
+
+      if (!this.notifyCharacteristic) {
+        console.warn('[BluetoothService] Nenhuma característica de notificação encontrada');
+        return;
+      }
+
+      // Monitorar notificações
+      this.notifySubscription = this.notifyCharacteristic.monitor((error, characteristic) => {
+        if (error) {
+          console.error('[BluetoothService] Erro ao monitorar notificações:', error);
+          return;
+        }
+
+        if (characteristic?.value) {
+          try {
+            // Decodificar base64
+            const decoded = base64Decode(characteristic.value);
+            
+            // Parse JSON
+            const notification: BluetoothNotification = JSON.parse(decoded);
+            
+            // Processar notificação
+            this.handleNotification(notification);
+          } catch (parseError) {
+            console.error('[BluetoothService] Erro ao processar notificação:', parseError);
+          }
+        }
+      });
+
+      console.log('[BluetoothService] Notificações BLE ativadas com sucesso');
+    } catch (error) {
+      console.error('[BluetoothService] Erro ao configurar notificações:', error);
+    }
   }
 
   async scanForDevices(
@@ -277,6 +534,10 @@ export class BluetoothService {
       this.connectedDevice = discovered;
       this.writableCharacteristic = writable;
       console.log('Conexão estabelecida com sucesso!');
+      
+      // Configurar notificações BLE
+      await this.setupNotifications();
+      
       this.notifyConnectionListeners(true);
     } catch (error) {
       console.error('Erro durante conexão:', error);
@@ -314,10 +575,20 @@ export class BluetoothService {
   }
 
   async disconnect(): Promise<void> {
+    // Parar timer mock se estiver rodando
+    this.stopMockTimer();
+    
+    // Limpar subscription de notificações
+    if (this.notifySubscription) {
+      this.notifySubscription.remove();
+      this.notifySubscription = null;
+    }
+    
     if (this.isMockMode) {
       console.log('[BluetoothService MOCK] Desconectando...');
       this.connectedDevice = null;
       this.writableCharacteristic = undefined;
+      this.notifyCharacteristic = undefined;
       this.commandQueue = [];
       this.notifyConnectionListeners(false);
       return;
@@ -332,6 +603,7 @@ export class BluetoothService {
     }
     this.connectedDevice = null;
     this.writableCharacteristic = undefined;
+    this.notifyCharacteristic = undefined;
     this.commandQueue = [];
     this.notifyConnectionListeners(false);
   }
@@ -339,6 +611,10 @@ export class BluetoothService {
   async sendCommand(command: BluetoothCommand): Promise<void> {
     if (this.isMockMode) {
       console.log(`[MOCK] Bluetooth command: ${command}`);
+      
+      // Auto-notificações em modo mock
+      this.mockAutoNotify(command);
+      
       return Promise.resolve();
     }
 

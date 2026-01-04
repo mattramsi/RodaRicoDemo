@@ -11,7 +11,9 @@ import {
 import { bluetoothService } from '../services/BluetoothService';
 import { useGame } from '../context/GameContext';
 import { wsService } from '../services/WebSocketService';
-import type { Question } from '../services/QuestionService';
+import { QuestionService, type Question } from '../services/QuestionService';
+import { BluetoothToast } from '../components/BluetoothToast';
+import type { BluetoothNotification } from '../types/bluetooth';
 
 interface QuizScreenProps {
   onFinish: (result: 'success' | 'fail') => void;
@@ -33,6 +35,7 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ onFinish }) => {
     partidaId,
     setAllWrong,
     setScore,
+    isMockMode,
   } = useGame();
 
   const [answer, setAnswer] = useState('');
@@ -41,6 +44,11 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ onFinish }) => {
   // Armazenar respostas localmente para garantir sincronização
   const localAnswersRef = useRef<Array<{ perguntaId: number; respostaUsuario: string; isCorrect: boolean }>>([]);
   const answerListenerRef = useRef<(() => void) | null>(null);
+  
+  // Estados para Toast de notificações Bluetooth
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'warning' | 'error' | 'info'>('info');
 
   const currentQuestion: Question | undefined = questions[currentQuestionIndex];
 
@@ -84,6 +92,61 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ onFinish }) => {
     };
   }, [questions.length]);
 
+  // 📡 Listeners para notificações Bluetooth
+  useEffect(() => {
+    console.log('[Quiz] Configurando listeners de notificações Bluetooth');
+    
+    // Listener 1: TEMPO_ATUALIZADO - Sincronizar timer com ESP32
+    const unsubscribeTimer = bluetoothService.onNotification(
+      'TEMPO_ATUALIZADO',
+      (notification) => {
+        if (notification.type === 'TEMPO_ATUALIZADO') {
+          const { segundosRestantes } = notification.data;
+          console.log('[Quiz] ⏱️ Timer atualizado pelo ESP32:', segundosRestantes);
+          setTimeRemaining(segundosRestantes);
+        }
+      }
+    );
+
+    // Listener 2: BOMBA_EXPLODIDA - Forçar fim do jogo
+    const unsubscribeExplosion = bluetoothService.onNotification(
+      'BOMBA_EXPLODIDA',
+      (notification) => {
+        if (notification.type === 'BOMBA_EXPLODIDA') {
+          console.log('[Quiz] 💥 Bomba explodiu (notificação ESP32)');
+          handleTimeOut(); // Força fim do jogo
+        }
+      }
+    );
+
+    // Listener 3: BOMBA_RESFRIADA - Item especial usado, adicionar tempo
+    const unsubscribeCooled = bluetoothService.onNotification(
+      'BOMBA_RESFRIADA',
+      (notification) => {
+        if (notification.type === 'BOMBA_RESFRIADA') {
+          const { segundosAdicionados } = notification.data;
+          console.log(`[Quiz] ❄️ Bomba resfriada! +${segundosAdicionados}s`);
+          
+          // Atualizar timer
+          setTimeRemaining(prev => prev + segundosAdicionados);
+          
+          // Mostrar toast animado
+          setToastMessage(`❄️ Bomba Resfriada! +${segundosAdicionados} segundos`);
+          setToastType('info');
+          setToastVisible(true);
+        }
+      }
+    );
+
+    // Cleanup
+    return () => {
+      unsubscribeTimer();
+      unsubscribeExplosion();
+      unsubscribeCooled();
+      console.log('[Quiz] Listeners de notificações removidos');
+    };
+  }, []);
+
   const handleTimeOut = async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -125,7 +188,99 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ onFinish }) => {
       const currentAnswerText = answer.trim();
       const currentIndex = currentQuestionIndex;
 
-      // Listener para resposta do WebSocket
+      // MODO MOCK: Processar resposta localmente
+      if (isMockMode) {
+        console.log('[Quiz] Modo Mock - Processando resposta localmente');
+        
+        try {
+          // Usar QuestionService mock para simular resposta
+          const result = await QuestionService.answerQuestion(
+            currentQuestion.id,
+            currentQuestion.pergunta,
+            currentAnswerText,
+            currentQuestion.pontos
+          );
+          
+          const isCorrect = result.correct;
+          const pontos = result.pontos;
+          
+          console.log('[Quiz] Mock: Resultado da resposta:', { isCorrect, pontos });
+          
+          // Update score
+          setScore((prev: number) => prev + pontos);
+          
+          // Adicionar resposta ao contexto e ao array local
+          const answerData = {
+            perguntaId: currentPerguntaId,
+            respostaUsuario: currentAnswerText,
+            isCorrect,
+          };
+          
+          addAnswer(answerData);
+          localAnswersRef.current = [...localAnswersRef.current, answerData];
+          
+          if (!isCorrect) {
+            // Enviar ACELERAR se errou
+            try {
+              await bluetoothService.sendCommand('ACELERAR');
+            } catch (error) {
+              console.error('Failed to send ACELERAR:', error);
+            }
+          }
+          
+          setLoading(false);
+          
+          // Move to next question
+          if (currentIndex < questions.length - 1) {
+            setCurrentQuestionIndex(currentIndex + 1);
+            setAnswer('');
+          } else {
+            // All questions answered
+            const currentAnswers = localAnswersRef.current;
+            
+            console.log('[Quiz] Mock: Todas as perguntas respondidas');
+            console.log('[Quiz] Mock: Respostas:', currentAnswers);
+            
+            const wrongAnswers = currentAnswers.filter((a) => a.isCorrect === false);
+            const correctAnswers = currentAnswers.filter((a) => a.isCorrect === true);
+            
+            console.log('[Quiz] Mock: Corretas:', correctAnswers.length, '/ Erradas:', wrongAnswers.length);
+            
+            if (correctAnswers.length === 0 && currentAnswers.length === questions.length) {
+              console.log('[Quiz] Mock: ❌ Todas erradas → FALHA');
+              setAllWrong(true);
+              try {
+                await bluetoothService.sendCommand('EXPLODIR');
+              } catch (error) {
+                console.error('Failed to send EXPLODIR:', error);
+              }
+              setGameState('finished');
+              setGameResult('fail');
+              onFinish('fail');
+            } else if (correctAnswers.length > 0) {
+              console.log('[Quiz] Mock: ✅ Pelo menos uma correta → SUCESSO');
+              setGameState('disarming');
+              setGameResult('success');
+              onFinish('success');
+            } else {
+              console.log('[Quiz] Mock: ⚠️ Fallback → FALHA');
+              setGameState('finished');
+              setGameResult('fail');
+              onFinish('fail');
+            }
+          }
+          
+          return; // Sair da função, não processar WebSocket
+          
+        } catch (error) {
+          console.error('[Quiz] Erro no modo mock:', error);
+          setLoading(false);
+          Alert.alert('Erro', 'Falha ao processar resposta no modo mock');
+          return;
+        }
+      }
+
+      // MODO REAL: Listener para resposta do WebSocket
       answerListenerRef.current = wsService.onMessage('*', (response) => {
         console.log('[Quiz] Mensagem recebida:', JSON.stringify(response, null, 2));
         
@@ -368,6 +523,15 @@ export const QuizScreen: React.FC<QuizScreenProps> = ({ onFinish }) => {
           )}
         </Pressable>
       </View>
+      
+      {/* Toast para notificações Bluetooth */}
+      <BluetoothToast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        duration={3000}
+        onHide={() => setToastVisible(false)}
+      />
     </View>
   );
 };

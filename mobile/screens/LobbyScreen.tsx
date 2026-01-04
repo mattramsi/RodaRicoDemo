@@ -45,6 +45,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
 
     // Se tem time mas não tem players, buscar informações do time
     const loadTeamInfo = async () => {
+      // Em modo mock, não tentar conectar ao WebSocket
+      if (isMockMode) {
+        console.log('[Lobby] Modo mock ativo - pulando conexão WebSocket');
+        return;
+      }
+
       if (team && team.id && players.length === 0) {
         try {
           // Conectar ao WebSocket de times se não estiver conectado
@@ -91,7 +97,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
     return () => {
       unsubscribe();
     };
-  }, [team, players.length, setPlayers]);
+  }, [team, players.length, setPlayers, isMockMode]);
 
   const handleStartGame = async () => {
     if (!team) {
@@ -104,8 +110,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
       return;
     }
 
-    // Apenas o líder pode iniciar o jogo
-    if (cabinRole !== 'leader') {
+    // Apenas o líder pode iniciar o jogo (exceto em modo mock para debug)
+    if (cabinRole !== 'leader' && !isMockMode) {
       Alert.alert('Atenção', 'Apenas o líder do time pode iniciar o desafio');
       return;
     }
@@ -116,6 +122,53 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
     }
 
     setLoading(true);
+
+    // MODO MOCK: Pular toda a lógica de WebSocket
+    if (isMockMode) {
+      console.log('[Lobby] Modo Mock - Iniciando jogo sem WebSocket');
+      
+      try {
+        // Simular ID de partida
+        const mockPartidaId = Math.floor(Math.random() * 10000) + 1000;
+        setPartidaId(mockPartidaId);
+        console.log('[Lobby] Mock: Partida ID gerado:', mockPartidaId);
+
+        // Enviar comando Bluetooth mock
+        await bluetoothService.sendCommand('INICIAR');
+        console.log('[Lobby] Mock: Comando INICIAR enviado via Bluetooth');
+
+        // Ativar modo mock no QuestionService
+        QuestionService.enableMockMode();
+
+        // Buscar perguntas mock
+        const questions = await QuestionService.getRandomQuestions(5);
+        console.log('[Lobby] Mock: Perguntas carregadas:', questions.length);
+        
+        if (!questions || questions.length === 0) {
+          console.error('[Lobby] Mock: Nenhuma pergunta foi carregada');
+          setLoading(false);
+          Alert.alert('Erro', 'Falha ao carregar perguntas. Tente novamente.');
+          return;
+        }
+        
+        setQuestions(questions);
+        setGameState('armed');
+
+        // Navegar para Quiz
+        setLoading(false);
+        setTimeout(() => {
+          console.log('[Lobby] Mock: Navegando para Quiz...');
+          onStartGame();
+        }, 500);
+        
+        return;
+      } catch (error) {
+        console.error('[Lobby] Erro no modo mock:', error);
+        setLoading(false);
+        Alert.alert('Erro', `Falha ao iniciar modo mock: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+        return;
+      }
+    }
     
     let timeoutId: NodeJS.Timeout | null = null;
     let unsubscribeGeneric: (() => void) | null = null;
@@ -182,7 +235,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
             console.error('Failed to send INICIAR:', error);
           }
 
-          // 4. Buscar perguntas via HTTP (única exceção permitida)
+          // 4. Buscar perguntas via HTTP (ou mock se isMockMode estiver ativo)
+          if (isMockMode) {
+            QuestionService.enableMockMode();
+          } else {
+            QuestionService.disableMockMode();
+          }
+          
           const questions = await QuestionService.getRandomQuestions(5);
           console.log('[Lobby] Perguntas carregadas:', questions.length);
           
@@ -340,9 +399,28 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ onStartGame }) => {
           )}
         </Pressable>
       ) : (
-        <View style={styles.waitingBox}>
-          <Text style={styles.waitingText}>⏳ Aguardando o líder iniciar o desafio...</Text>
-        </View>
+        <>
+          <View style={styles.waitingBox}>
+            <Text style={styles.waitingText}>⏳ Aguardando o líder iniciar o desafio...</Text>
+          </View>
+          
+          {/* Botão de debug em modo mock para participantes */}
+          {isMockMode && (
+            <Pressable
+              style={[styles.mockDebugButton, loading && styles.buttonDisabled]}
+              onPress={handleStartGame}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.mockDebugButtonText}>
+                  🧪 [Mock Debug] Forçar Início do Jogo
+                </Text>
+              )}
+            </Pressable>
+          )}
+        </>
       )}
 
       {loading && (
@@ -470,6 +548,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  mockDebugButton: {
+    backgroundColor: '#8b5cf6',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#a78bfa',
+    borderStyle: 'dashed',
+  },
+  mockDebugButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   warning: {
     color: '#fbbf24',

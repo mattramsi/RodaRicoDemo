@@ -78,6 +78,7 @@ interface GameContextType {
   setTimeRemaining: Dispatch<SetStateAction<number>>;
   setAllWrong: (allWrong: boolean) => void;
   resetGame: () => void;
+  resetGameFully: () => void; // Reset completo incluindo cabine e mock
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -126,6 +127,29 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // isMockMode persiste entre jogos
   };
 
+  const resetGameFully = () => {
+    console.log('[GameContext] Reset completo do jogo');
+    setGameState('idle');
+    setGameResult(null);
+    setTeam(null);
+    setPlayers([]);
+    setPartidaId(null);
+    setCabineId(null);
+    setQuestions([]);
+    setCurrentQuestionIndex(0);
+    setAnswers([]);
+    setScore(0);
+    setTimeRemaining(600);
+    setAllWrong(false);
+    
+    // Reset cabin states
+    setCabinRole(null);
+    setBluetoothDeviceName(null);
+    setPlayersInCabin([]);
+    setCabinStatus('empty');
+    setIsMockMode(false); // Reset mock mode também
+  };
+
   return (
     <GameContext.Provider
       value={{
@@ -166,6 +190,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setTimeRemaining,
         setAllWrong,
         resetGame,
+        resetGameFully,
       }}
     >
       {children}
