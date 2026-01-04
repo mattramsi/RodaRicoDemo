@@ -225,7 +225,7 @@ export default function App() {
                   }}
                   onUseMockMode={() => {
                     // Ativar modo mock no BluetoothService e ir direto para o jogo
-                    const { bluetoothService } = require('../services/BluetoothService');
+                    const { bluetoothService } = require('./services/BluetoothService');
                     bluetoothService.enableMockMode();
                     props.navigation.navigate('Quiz');
                   }}
